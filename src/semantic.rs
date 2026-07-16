@@ -411,8 +411,8 @@ impl FunctionBuilder<'_, '_> {
                 let name = name_node
                     .map(|name| self.unit.text(name).to_owned())
                     .unwrap_or_else(|| format!("__cr_param_{}", *self.next_declaration));
-                let mut ty = name_node
-                    .and_then(|name_node| declarator.map(|declarator| (declarator, name_node)))
+                let mut ty = declarator
+                    .zip(name_node)
                     .map(|(declarator, name_node)| {
                         self.type_with_declarator(
                             type_node,
