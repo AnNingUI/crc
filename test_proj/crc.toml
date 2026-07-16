@@ -1,0 +1,17 @@
+[project]
+name = "test_proj"
+version = "0.1.0"
+crate_dir = "crc/src"
+dist_dir = "crc/dist"
+include_dir = "include"
+src_dir = "src"
+
+[build]
+parallel = true
+skip_includes = true
+emit_ast = true
+emit_cfg = false
+emit_hir = false
+
+[codegen]
+mode = "direct"
