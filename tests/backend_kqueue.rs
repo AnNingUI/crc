@@ -129,7 +129,14 @@ fn kqueue_artifacts_can_be_exported_for_an_external_macos_gate() {
 
 #[test]
 fn kqueue_provider_cross_compiles_for_intel_and_apple_silicon() {
-    let version = run(Command::new("zig").arg("version"));
+    let version = match Command::new("zig").arg("version").output() {
+        Ok(version) => version,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("skipping macOS cross gate because Zig is unavailable");
+            return;
+        }
+        Err(error) => panic!("Zig version command starts: {error}"),
+    };
     if !version.status.success() {
         eprintln!("skipping macOS cross gate because Zig is unavailable");
         return;
