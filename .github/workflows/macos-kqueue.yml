@@ -1,0 +1,64 @@
+name: macOS kqueue
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-kqueue:
+    name: macOS 14 / kqueue
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.20.0
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install grammar dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run real macOS kqueue gate
+        run: cargo test --test backend_kqueue -- --nocapture
+
+      - name: Check Rust formatting
+        run: cargo fmt --check
+
+      - name: Check all Rust targets
+        run: cargo check --all-targets
+
+      - name: Lint all Rust targets
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test all Rust targets
+        run: cargo test --all-targets
+
+      - name: Test Tree-sitter grammar
+        run: pnpm run grammar:test

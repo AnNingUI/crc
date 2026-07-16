@@ -1,0 +1,39 @@
+[project]
+name = "{{ project_name }}"
+version = "{{ version }}"
+crate_dir = "{{ crate_dir }}"
+dist_dir = "{{ dist_dir }}"
+include_dir = "{{ include_dir }}"
+src_dir = "{{ src_dir }}"
+
+[build]
+target = "host"
+optimization = "speed"
+debug_info = true
+warnings_as_errors = false
+c_standard = "c11"
+
+[runtime]
+executor = "manual"
+backends = []
+
+[preprocessor]
+enabled = true
+include_paths = ["crc/include", "include"]
+defines = []
+forced_includes = []
+
+[watch]
+enabled = true
+debounce_ms = 50
+ignore_patterns = [
+    "**/target/**",
+    "**/.git/**",
+    "**/build/**",
+]
+parallel_jobs = 0
+
+[codegen]
+prefix = "cr_"
+context_name = "ctx"
+computed_goto = false

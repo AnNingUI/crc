@@ -1,0 +1,6 @@
+#ifndef CR_EXAMPLE_MAIN_H
+#define CR_EXAMPLE_MAIN_H
+
+__async int sequence(void);
+
+#endif

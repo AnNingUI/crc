@@ -1,0 +1,29 @@
+{
+  "grammars": [
+    {
+      "name": "cr",
+      "camelcase": "Cr",
+      "scope": "source.cr",
+      "path": "grammar",
+      "file-types": [
+        "cr",
+        "hr"
+      ],
+      "injection-regex": "^(cr|hr)$"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "C grammar with CR coroutine and scope-exit extensions",
+    "authors": [
+      {
+        "name": "CR compiler contributors"
+      }
+    ]
+  },
+  "bindings": {
+    "c": true,
+    "rust": true
+  }
+}

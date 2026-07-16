@@ -1,0 +1,70 @@
+[package]
+name = "crc"
+version = "0.1.0"
+edition = "2024"
+description = "CR (Coroutine Runtime) - C语言async/await/yield/defer预编译器，生成goto状态机C代码"
+license = "MIT"
+repository = "https://github.com/yourname/crc"
+readme = "README.md"
+
+[lib]
+name = "crc_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "crc"
+path = "src/main.rs"
+
+[dependencies]
+# CLI
+clap = { version = "4.5", features = ["derive", "env"] }
+
+# 文件监听和热更新
+notify = { version = "8.2", features = ["mio"] }
+
+# 进程信号处理 (Ctrl+C)
+ctrlc = "3.4"
+
+# CPU 核心数检测
+num_cpus = "1.17"
+
+# 或者使用 tree-sitter 作为 C 语言解析器
+# tree-sitter = "0.25"
+# tree-sitter-c = "0.23"
+
+# 序列化
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "1.1.2"
+
+# 路径处理
+walkdir = "2.5"
+
+# 错误处理
+anyhow = "1.0"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# 模板引擎
+tera = "2.0.0"
+tree-sitter = "0.26.11"
+tree-sitter-language = "0.1.7"
+thiserror = "2.0.18"
+
+# C 代码生成和格式化
+# 可选：使用 clang-format 作为后处理
+
+[dev-dependencies]
+tempfile = "3.8"
+
+[profile.release]
+lto = true
+opt-level = 3
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 1
+debug = true
+
+[build-dependencies]
+cc = "1.2.67"

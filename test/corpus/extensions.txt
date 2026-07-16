@@ -1,0 +1,140 @@
+==================
+Async function extensions
+==================
+
+__async int fetch(int socket) {
+    int bytes = __await read_socket(socket);
+    __yield bytes + 1;
+    __defer close_socket(socket);
+    return bytes;
+}
+
+---
+
+(translation_unit
+  (function_definition
+    (async_specifier)
+    (primitive_type)
+    (function_declarator
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (primitive_type)
+          (identifier))))
+    (compound_statement
+      (declaration
+        (primitive_type)
+        (init_declarator
+          (identifier)
+          (await_expression
+            (call_expression
+              (identifier)
+              (argument_list
+                (identifier))))))
+      (expression_statement
+        (yield_expression
+          (binary_expression
+            (identifier)
+            (number_literal))))
+      (defer_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (identifier))))
+      (return_statement
+        (identifier)))))
+
+==================
+Compatibility await spelling and task binding
+==================
+
+__async int task = fetch(1);
+
+__async int run(void) {
+    return __awite task;
+}
+
+---
+
+(translation_unit
+  (declaration
+    (async_specifier)
+    (primitive_type)
+    (init_declarator
+      (identifier)
+      (call_expression
+        (identifier)
+        (argument_list
+          (number_literal)))))
+  (function_definition
+    (async_specifier)
+    (primitive_type)
+    (function_declarator
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (primitive_type))))
+    (compound_statement
+      (return_statement
+        (await_expression
+          (identifier))))))
+
+==================
+Standard C and preprocessing
+==================
+
+#include <stdint.h>
+#define SCALE(x) ((x) * 2)
+
+static int scale(int value) {
+    return SCALE(value);
+}
+
+---
+
+(translation_unit
+  (preproc_include
+    (system_lib_string))
+  (preproc_function_def
+    (identifier)
+    (preproc_params
+      (identifier))
+    (preproc_arg))
+  (function_definition
+    (storage_class_specifier)
+    (primitive_type)
+    (function_declarator
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (primitive_type)
+          (identifier))))
+    (compound_statement
+      (return_statement
+        (call_expression
+          (identifier)
+          (argument_list
+            (identifier)))))))
+
+==================
+Incomplete async edit
+==================
+
+__async int pending(int value) {
+    return __await
+}
+
+---
+
+(translation_unit
+  (function_definition
+    (async_specifier)
+    (primitive_type)
+    (function_declarator
+      (identifier)
+      (parameter_list
+        (parameter_declaration
+          (primitive_type)
+          (identifier))))
+    (compound_statement
+      (ERROR))))
