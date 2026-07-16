@@ -1,4 +1,9 @@
 #include "cr_backend_internal.h"
+#if defined(CR_BACKEND_DIFFERENTIAL)
+#include "transcript.h"
+#else
+#define cr_test_diff_emit(...) ((void)0)
+#endif
 
 #include <assert.h>
 #include <stddef.h>
@@ -188,6 +193,18 @@ int main(void) {
     assert(first_result.last.bytes_transferred == sizeof(ready_data) - 1u);
     assert(memcmp(first_buffer, ready_data, sizeof(ready_data) - 1u) == 0);
     assert(net->receive_quiesce(backend, first, &net_error));
+    cr_test_diff_emit(
+        "success",
+        first_result.last.terminal_kind,
+        first_result.last.bytes_transferred,
+        first_result.last.error_category,
+        UINT32_C(1),
+        UINT32_C(0),
+        UINT32_C(1),
+        UINT32_C(1),
+        CR_BACKEND_PUMP_PROGRESS,
+        UINT32_C(1)
+    );
 
     assert(net->receive_initialize(
         backend,
@@ -209,6 +226,18 @@ int main(void) {
     assert(first_result.last.terminal_kind == CR_NET_RECEIVE_CANCELED);
     assert(net->receive_quiesce(backend, first, &net_error));
     assert(net->receive_destroy(backend, first, &net_error));
+    cr_test_diff_emit(
+        "cancel",
+        first_result.last.terminal_kind,
+        first_result.last.bytes_transferred,
+        first_result.last.error_category,
+        UINT32_C(1),
+        UINT32_C(0),
+        UINT32_C(1),
+        UINT32_C(1),
+        CR_BACKEND_PUMP_PROGRESS,
+        UINT32_C(1)
+    );
 
     assert(net->receive_initialize(
         backend,
@@ -239,12 +268,36 @@ int main(void) {
     assert(net->receive_destroy(backend, second, &net_error));
     assert(cr_backend_pump(backend, UINT64_C(0), UINT32_C(1), &pump));
     assert(pump.reason == CR_BACKEND_PUMP_TIMEOUT);
+    cr_test_diff_emit(
+        "timeout",
+        CR_NET_RECEIVE_INVALID,
+        UINT64_C(0),
+        CR_NET_ERROR_NONE,
+        UINT32_C(0),
+        UINT32_C(0),
+        UINT32_C(1),
+        UINT32_C(1),
+        pump.reason,
+        pump.events_dispatched
+    );
 
     assert(cr_backend_interrupt(backend, &backend_error));
     assert(cr_backend_interrupt(backend, &backend_error));
     assert(cr_backend_pump(backend, UINT64_MAX, UINT32_C(1), &pump));
     assert(pump.reason == CR_BACKEND_PUMP_INTERRUPTED);
     assert(pump.events_dispatched == UINT32_C(1));
+    cr_test_diff_emit(
+        "interrupt",
+        CR_NET_RECEIVE_INVALID,
+        UINT64_C(0),
+        CR_NET_ERROR_NONE,
+        UINT32_C(0),
+        UINT32_C(0),
+        UINT32_C(1),
+        UINT32_C(1),
+        pump.reason,
+        pump.events_dispatched
+    );
     assert(cr_backend_pump(backend, UINT64_C(0), UINT32_C(1), &pump));
     assert(pump.reason == CR_BACKEND_PUMP_TIMEOUT);
 
@@ -276,7 +329,57 @@ int main(void) {
     assert(third_result.last.native_error_domain == CR_NATIVE_ERROR_DOMAIN_ERRNO);
     assert(third_result.last.native_error_code == INT64_C(55));
     assert(net->receive_quiesce(backend, third, &net_error));
+    cr_test_diff_emit(
+        "error",
+        third_result.last.terminal_kind,
+        third_result.last.bytes_transferred,
+        third_result.last.error_category,
+        third_result.calls,
+        UINT32_C(0),
+        UINT32_C(1),
+        UINT32_C(1),
+        CR_BACKEND_PUMP_PROGRESS,
+        UINT32_C(1)
+    );
+
+    memset(&third_result, 0, sizeof(third_result));
+    assert(net->receive_initialize(
+        backend,
+        third,
+        sizeof(third_storage),
+        memory_socket((uintptr_t)3u),
+        third_buffer,
+        sizeof(third_buffer),
+        observe_completion,
+        &third_result,
+        &net_error
+    ));
+    assert(net->receive_submit(backend, third, &net_error));
+    assert(cr_backend_memory_complete_ready(
+        backend,
+        third,
+        NULL,
+        UINT64_C(0),
+        &net_error
+    ));
+    assert(cr_backend_pump(backend, UINT64_C(0), UINT32_C(1), &pump));
+    assert(third_result.calls == UINT32_C(1));
+    assert(third_result.last.terminal_kind == CR_NET_RECEIVE_READY);
+    assert(third_result.last.bytes_transferred == UINT64_C(0));
+    assert(net->receive_quiesce(backend, third, &net_error));
     assert(net->receive_destroy(backend, third, &net_error));
+    cr_test_diff_emit(
+        "eof",
+        third_result.last.terminal_kind,
+        third_result.last.bytes_transferred,
+        third_result.last.error_category,
+        third_result.calls,
+        UINT32_C(0),
+        UINT32_C(1),
+        UINT32_C(1),
+        CR_BACKEND_PUMP_PROGRESS,
+        UINT32_C(1)
+    );
 
     assert(!cr_backend_pump(backend, UINT64_C(0), UINT32_C(0), &pump));
     assert(pump.reason == CR_BACKEND_PUMP_ERROR);
@@ -299,21 +402,33 @@ int main(void) {
     assert(shutdown_result.calls == UINT32_C(1));
     assert(shutdown_result.last.terminal_kind == CR_NET_RECEIVE_CANCELED);
     assert(net->receive_destroy(backend, shutdown_operation, &net_error));
+    cr_test_diff_emit(
+        "shutdown",
+        shutdown_result.last.terminal_kind,
+        shutdown_result.last.bytes_transferred,
+        shutdown_result.last.error_category,
+        shutdown_result.calls,
+        UINT32_C(0),
+        UINT32_C(1),
+        UINT32_C(0),
+        CR_BACKEND_PUMP_PROGRESS,
+        UINT32_C(1)
+    );
 
-    assert(trace.counts[CR_BACKEND_MEMORY_TRACE_INITIALIZED] == UINT32_C(6));
-    assert(trace.counts[CR_BACKEND_MEMORY_TRACE_SUBMITTED] == UINT32_C(5));
+    assert(trace.counts[CR_BACKEND_MEMORY_TRACE_INITIALIZED] == UINT32_C(7));
+    assert(trace.counts[CR_BACKEND_MEMORY_TRACE_SUBMITTED] == UINT32_C(6));
     assert(
         trace.counts[CR_BACKEND_MEMORY_TRACE_CANCEL_REQUESTED] ==
         UINT32_C(2)
     );
     assert(
-        trace.counts[CR_BACKEND_MEMORY_TRACE_TERMINAL_QUEUED] == UINT32_C(5)
+        trace.counts[CR_BACKEND_MEMORY_TRACE_TERMINAL_QUEUED] == UINT32_C(6)
     );
     assert(
         trace.counts[CR_BACKEND_MEMORY_TRACE_TERMINAL_CALLBACK] ==
-        UINT32_C(5)
+        UINT32_C(6)
     );
-    assert(trace.counts[CR_BACKEND_MEMORY_TRACE_QUIESCENT] == UINT32_C(6));
+    assert(trace.counts[CR_BACKEND_MEMORY_TRACE_QUIESCENT] == UINT32_C(7));
     assert(trace.counts[CR_BACKEND_MEMORY_TRACE_DESTROYED] == UINT32_C(4));
     assert(
         trace.counts[CR_BACKEND_MEMORY_TRACE_INTERRUPT_CONSUMED] ==

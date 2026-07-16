@@ -50,6 +50,9 @@ jobs:
       - name: Run real macOS kqueue gate
         run: cargo test --test backend_kqueue -- --nocapture
 
+      - name: Compare memory and kqueue semantics
+        run: cargo test --test backend_differential -- --nocapture
+
       - name: Check Rust formatting
         run: cargo fmt --check
 

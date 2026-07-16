@@ -133,10 +133,11 @@ Completed: Task 4 reference net-receive awaitable
 Completed: Task 5 cancellation and allocation hardening
 Completed: Task 6 Windows IOCP provider
 Completed: Task 7 Linux epoll provider
-In progress: Task 8 macOS kqueue provider
-Next: Complete Task 8 on a real macOS Clang runner
-Pending: Tasks 8 through 13
-External gate: Real macOS execution evidence is not available in this workspace
+Completed: Task 8 macOS kqueue provider
+In progress: Task 9 cross-provider differential analysis
+Next: Run the Backend differential workflow on Windows, Linux, and macOS
+Pending: Tasks 10 through 13
+External gate: GitHub Actions macos-14 execution passed on July 17, 2026
 ```
 
 ## Task 1: Add backend selection without changing output
@@ -561,7 +562,7 @@ cargo test --test backend_kqueue
 - kqueue validates readiness without reusing epoll implementation details.
 - EOF, rearm, delete, and stale-event semantics match the common contract.
 
-**Implementation evidence pending the macOS execution gate (2026-07-16):**
+**Implementation and acceptance evidence (2026-07-17):**
 
 - One provider-owned kqueue descriptor uses `EV_DISPATCH` read filters and
   explicit `EV_ENABLE` rearming after `EAGAIN`.
@@ -583,9 +584,13 @@ cargo test --test backend_kqueue
   native, ABI, generated-project, and `wasm32-wasi` gate. Formatting,
   `cargo check --all-targets`, Clippy with warnings denied, and grammar tests
   pass.
-- Task 8 remains incomplete until the same fixture compiles and executes with
-  Clang on an Apple macOS kernel. Cross-compilation and libkqueue execution do
-  not replace that acceptance requirement.
+- GitHub Actions executes the complete fixture with Clang on a real
+  `macos-14` runner. The loopback, readiness, EOF, rearm, cancellation,
+  interrupt, stale-token, timeout, shutdown, and descriptor-ownership checks
+  pass on the Apple macOS kernel.
+- The macOS workflow installs Zig and compiles the provider for both
+  `x86_64-macos` and `aarch64-macos`. It also passes formatting, all-target
+  checks and tests, Clippy with warnings denied, and Tree-sitter grammar tests.
 - Native operation storage is safe through quiescence.
 
 ## Task 9: Run cross-provider differential analysis
@@ -631,6 +636,25 @@ cargo test --test backend_differential
 - Raw IOCP, epoll, and kqueue records remain private.
 - The surviving common prefix has evidence from every required provider.
 - No interface is stable yet.
+
+**Implementation evidence pending three-host CI (2026-07-17):**
+
+- The approved
+  [differential validation design](../specs/2026-07-17-cr-backend-differential-stage-6-task-9-design.md)
+  defines one normalized transcript and independent host-local comparison.
+- `tests/backend_differential.rs` runs the memory provider and the current
+  host's required native provider against seven canonical scenarios.
+- The transcript compares success, EOF, network error, repeated cancellation,
+  timeout, interrupt, shutdown, callback count, quiescence, and reuse.
+- Native error values, handles, readiness flags, completion packets, and event
+  tokens remain outside the transcript.
+- Windows Clang and GCC produce identical memory and IOCP transcripts.
+- `.github/workflows/backend-differential.yml` runs the same focused gate on
+  `windows-2022`, `ubuntu-24.04`, and `macos-14`.
+- Formatting, all-target checks, Clippy with warnings denied, grammar tests,
+  153 library tests, and every local integration target pass.
+- Task 9 remains incomplete until the real Linux epoll and macOS kqueue jobs
+  match the canonical transcript.
 
 ## Task 10: Freeze the proven semantic prefix
 

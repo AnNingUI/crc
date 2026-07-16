@@ -1,6 +1,11 @@
 #include "macos_helpers.h"
 
 #include "cr_backend_internal.h"
+#if defined(CR_BACKEND_DIFFERENTIAL)
+#include "transcript.h"
+#else
+#define cr_test_diff_emit(...) ((void)0)
+#endif
 
 #include <errno.h>
 #include <pthread.h>
@@ -294,6 +299,15 @@ static void test_data_and_rearm(void) {
         operation,
         &error
     ));
+    cr_test_diff_emit(
+        "success",
+        completion.completion.terminal_kind,
+        completion.completion.bytes_transferred,
+        completion.completion.error_category,
+        completion.calls,
+        UINT32_C(0), UINT32_C(1), UINT32_C(1),
+        CR_BACKEND_PUMP_PROGRESS, UINT32_C(1)
+    );
 
     memset(&completion, 0, sizeof(completion));
     memset(buffer, 0, sizeof(buffer));
@@ -438,6 +452,15 @@ static void test_cancel_quiescence_and_stale_token(void) {
         operation,
         &error
     ));
+    cr_test_diff_emit(
+        "cancel",
+        first_completion.completion.terminal_kind,
+        first_completion.completion.bytes_transferred,
+        first_completion.completion.error_category,
+        first_completion.calls,
+        UINT32_C(0), UINT32_C(1), UINT32_C(1),
+        CR_BACKEND_PUMP_PROGRESS, UINT32_C(1)
+    );
 
     operation = initialize_receive(
         &fixture,
@@ -560,6 +583,12 @@ static void test_unrelated_cancel_and_event_budget(void) {
         ));
     } while (pump.reason == CR_BACKEND_PUMP_PROGRESS);
     assert(pump.reason == CR_BACKEND_PUMP_TIMEOUT);
+    cr_test_diff_emit(
+        "timeout",
+        CR_NET_RECEIVE_INVALID, UINT64_C(0), CR_NET_ERROR_NONE,
+        UINT32_C(0), UINT32_C(0), UINT32_C(1), UINT32_C(1),
+        pump.reason, pump.events_dispatched
+    );
 
     operation[2] = initialize_receive(
         &fixture,
@@ -650,6 +679,12 @@ static void test_timeout_interrupt_and_validation(void) {
     assert(cr_backend_interrupt(fixture.backend, &backend_error));
     assert(cr_backend_interrupt(fixture.backend, &backend_error));
     pump_one(&fixture, CR_BACKEND_PUMP_INTERRUPTED);
+    cr_test_diff_emit(
+        "interrupt",
+        CR_NET_RECEIVE_INVALID, UINT64_C(0), CR_NET_ERROR_NONE,
+        UINT32_C(0), UINT32_C(0), UINT32_C(1), UINT32_C(1),
+        CR_BACKEND_PUMP_INTERRUPTED, UINT32_C(1)
+    );
     context.backend = fixture.backend;
     assert(pthread_create(&thread, NULL, interrupt_thread, &context) == 0);
     pump_one(&fixture, CR_BACKEND_PUMP_INTERRUPTED);
@@ -710,6 +745,15 @@ static void test_eof_and_errno_are_independent(void) {
     assert(eof_completion.completion.terminal_kind == CR_NET_RECEIVE_READY);
     assert(eof_completion.completion.bytes_transferred == UINT64_C(0));
     quiesce_and_destroy(&fixture, eof_operation);
+    cr_test_diff_emit(
+        "eof",
+        eof_completion.completion.terminal_kind,
+        eof_completion.completion.bytes_transferred,
+        eof_completion.completion.error_category,
+        eof_completion.calls,
+        UINT32_C(0), UINT32_C(1), UINT32_C(1),
+        CR_BACKEND_PUMP_PROGRESS, UINT32_C(1)
+    );
 
     error_operation = initialize_receive(
         &fixture,
@@ -733,6 +777,15 @@ static void test_eof_and_errno_are_independent(void) {
         CR_NATIVE_ERROR_DOMAIN_ERRNO);
     assert(error_completion.completion.native_error_code != INT64_C(0));
     quiesce_and_destroy(&fixture, error_operation);
+    cr_test_diff_emit(
+        "error",
+        error_completion.completion.terminal_kind,
+        error_completion.completion.bytes_transferred,
+        error_completion.completion.error_category,
+        error_completion.calls,
+        UINT32_C(0), UINT32_C(1), UINT32_C(1),
+        CR_BACKEND_PUMP_PROGRESS, UINT32_C(1)
+    );
     destroy_backend(&fixture);
     cr_test_close_socket_pair(&eof_pair);
     cr_test_close_socket_pair(&error_pair);
@@ -776,6 +829,15 @@ static void test_shutdown_preserves_borrowed_descriptor(void) {
         operation,
         &net_error
     ));
+    cr_test_diff_emit(
+        "shutdown",
+        completion.completion.terminal_kind,
+        completion.completion.bytes_transferred,
+        completion.completion.error_category,
+        completion.calls,
+        UINT32_C(0), UINT32_C(1), UINT32_C(0),
+        CR_BACKEND_PUMP_PROGRESS, UINT32_C(1)
+    );
     destroy_backend(&fixture);
     assert(getpeername(
         pair.receiver,

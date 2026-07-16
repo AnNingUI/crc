@@ -1,6 +1,11 @@
 #include "windows_helpers.h"
 
 #include "cr_backend_internal.h"
+#if defined(CR_BACKEND_DIFFERENTIAL)
+#include "transcript.h"
+#else
+#define cr_test_diff_emit(...) ((void)0)
+#endif
 
 #include <stddef.h>
 #include <stdlib.h>
@@ -215,6 +220,18 @@ static void test_immediate_completion_wins_late_cancel(void) {
     assert(completion.completion.bytes_transferred == sizeof(payload) - 1u);
     assert(memcmp(buffer, payload, sizeof(payload) - 1u) == 0);
     quiesce_and_destroy(&fixture, operation);
+    cr_test_diff_emit(
+        "success",
+        completion.completion.terminal_kind,
+        completion.completion.bytes_transferred,
+        completion.completion.error_category,
+        completion.calls,
+        UINT32_C(0),
+        UINT32_C(1),
+        UINT32_C(1),
+        CR_BACKEND_PUMP_PROGRESS,
+        UINT32_C(1)
+    );
     destroy_backend(&fixture);
     cr_test_close_socket_pair(&pair);
 }
@@ -318,6 +335,18 @@ static void test_cancel_before_completion(void) {
     assert(completion.calls == 1u);
     assert(completion.completion.terminal_kind == CR_NET_RECEIVE_CANCELED);
     quiesce_and_destroy(&fixture, operation);
+    cr_test_diff_emit(
+        "cancel",
+        completion.completion.terminal_kind,
+        completion.completion.bytes_transferred,
+        completion.completion.error_category,
+        completion.calls,
+        UINT32_C(0),
+        UINT32_C(1),
+        UINT32_C(1),
+        CR_BACKEND_PUMP_PROGRESS,
+        UINT32_C(1)
+    );
     destroy_backend(&fixture);
     cr_test_close_socket_pair(&pair);
 }
@@ -514,6 +543,18 @@ static void test_timeout_and_interrupt(void) {
     ));
     assert(pump.reason == CR_BACKEND_PUMP_TIMEOUT);
     assert(pump.events_dispatched == UINT32_C(0));
+    cr_test_diff_emit(
+        "timeout",
+        CR_NET_RECEIVE_INVALID,
+        UINT64_C(0),
+        CR_NET_ERROR_NONE,
+        UINT32_C(0),
+        UINT32_C(0),
+        UINT32_C(1),
+        UINT32_C(1),
+        pump.reason,
+        pump.events_dispatched
+    );
     assert(!cr_backend_pump(
         fixture.backend,
         UINT64_C(0),
@@ -526,6 +567,18 @@ static void test_timeout_and_interrupt(void) {
     assert(cr_backend_interrupt(fixture.backend, &error));
     assert(cr_backend_interrupt(fixture.backend, &error));
     pump_one(&fixture, CR_BACKEND_PUMP_INTERRUPTED);
+    cr_test_diff_emit(
+        "interrupt",
+        CR_NET_RECEIVE_INVALID,
+        UINT64_C(0),
+        CR_NET_ERROR_NONE,
+        UINT32_C(0),
+        UINT32_C(0),
+        UINT32_C(1),
+        UINT32_C(1),
+        CR_BACKEND_PUMP_INTERRUPTED,
+        UINT32_C(1)
+    );
     assert(cr_backend_pump(
         fixture.backend,
         UINT64_C(0),
@@ -556,6 +609,7 @@ static void test_eof_and_winsock_error(void) {
     cr_net_receive_operation *eof_operation;
     cr_net_receive_operation *error_operation;
     cr_net_error error;
+    struct linger reset = {1, 0};
 
     eof_operation = initialize_receive(
         &fixture,
@@ -575,8 +629,19 @@ static void test_eof_and_winsock_error(void) {
     assert(eof_completion.completion.terminal_kind == CR_NET_RECEIVE_READY);
     assert(eof_completion.completion.bytes_transferred == UINT64_C(0));
     quiesce_and_destroy(&fixture, eof_operation);
+    cr_test_diff_emit(
+        "eof",
+        eof_completion.completion.terminal_kind,
+        eof_completion.completion.bytes_transferred,
+        eof_completion.completion.error_category,
+        eof_completion.calls,
+        UINT32_C(0),
+        UINT32_C(1),
+        UINT32_C(1),
+        CR_BACKEND_PUMP_PROGRESS,
+        UINT32_C(1)
+    );
 
-    assert(shutdown(error_pair.receiver, SD_RECEIVE) == 0);
     error_operation = initialize_receive(
         &fixture,
         &error_storage,
@@ -585,20 +650,41 @@ static void test_eof_and_winsock_error(void) {
         sizeof(error_buffer),
         &error_completion
     );
-    assert(!fixture.net->receive_submit(
+    assert(fixture.net->receive_submit(
         fixture.backend,
         error_operation,
         &error
     ));
-    assert(error.category == CR_NET_ERROR_NETWORK_FAILURE);
-    assert(error.native_domain == CR_NATIVE_ERROR_DOMAIN_WINSOCK);
-    assert(error.native_code != INT64_C(0));
-    assert(error_completion.calls == 0u);
-    assert(fixture.net->receive_destroy(
-        fixture.backend,
-        error_operation,
-        &error
-    ));
+    assert(setsockopt(
+        error_pair.sender,
+        SOL_SOCKET,
+        SO_LINGER,
+        (const char *)&reset,
+        (int)sizeof(reset)
+    ) == 0);
+    assert(closesocket(error_pair.sender) == 0);
+    error_pair.sender = INVALID_SOCKET;
+    pump_one(&fixture, CR_BACKEND_PUMP_PROGRESS);
+    assert(error_completion.calls == 1u);
+    assert(error_completion.completion.terminal_kind == CR_NET_RECEIVE_ERROR);
+    assert(error_completion.completion.error_category ==
+        CR_NET_ERROR_NETWORK_FAILURE);
+    assert(error_completion.completion.native_error_domain ==
+        CR_NATIVE_ERROR_DOMAIN_WINSOCK);
+    assert(error_completion.completion.native_error_code != INT64_C(0));
+    quiesce_and_destroy(&fixture, error_operation);
+    cr_test_diff_emit(
+        "error",
+        error_completion.completion.terminal_kind,
+        error_completion.completion.bytes_transferred,
+        error_completion.completion.error_category,
+        error_completion.calls,
+        UINT32_C(0),
+        UINT32_C(1),
+        UINT32_C(1),
+        CR_BACKEND_PUMP_PROGRESS,
+        UINT32_C(1)
+    );
 
     destroy_backend(&fixture);
     cr_test_close_socket_pair(&eof_pair);
@@ -696,6 +782,18 @@ static void test_shutdown_quiesces_and_preserves_socket(void) {
         operation,
         &net_error
     ));
+    cr_test_diff_emit(
+        "shutdown",
+        completion.completion.terminal_kind,
+        completion.completion.bytes_transferred,
+        completion.completion.error_category,
+        completion.calls,
+        UINT32_C(0),
+        UINT32_C(1),
+        UINT32_C(0),
+        CR_BACKEND_PUMP_PROGRESS,
+        UINT32_C(1)
+    );
     destroy_backend(&fixture);
 
     assert(getsockname(
