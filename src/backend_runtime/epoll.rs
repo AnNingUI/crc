@@ -1,4 +1,6 @@
-pub(crate) const EPOLL_SOURCE: &str = r#"#define _POSIX_C_SOURCE 200809L
+pub(crate) const EPOLL_SOURCE: &str = r#"#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 200809L
+#endif
 
 #include "cr_backend_internal.h"
 

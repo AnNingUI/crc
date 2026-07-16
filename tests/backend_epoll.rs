@@ -123,6 +123,8 @@ fn epoll_provider_runs_real_loopback_conformance_with_linux_compilers() {
             "-Wall",
             "-Wextra",
             "-Werror",
+            "-D_GNU_SOURCE",
+            "-D_POSIX_C_SOURCE=200809L",
             "-include",
             "linux_hooks.h",
             "epoll.c",

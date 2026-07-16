@@ -191,11 +191,11 @@ fn run_native_fixture(compiler: &str, fixture_config: &NativeFixture) {
         .collect::<Vec<_>>();
     let source = format!("{}.c", fixture_config.provider);
     let mut command = Command::new(compiler);
+    command.args(["-std=c11", "-Wall", "-Wextra", "-Werror"]);
+    if fixture_config.provider == "epoll" {
+        command.args(["-D_GNU_SOURCE", "-D_POSIX_C_SOURCE=200809L"]);
+    }
     command.args([
-        "-std=c11",
-        "-Wall",
-        "-Wextra",
-        "-Werror",
         "-DCR_BACKEND_DIFFERENTIAL=1",
         "-include",
         fixture_config.forced_include,
