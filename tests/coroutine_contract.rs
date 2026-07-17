@@ -741,14 +741,15 @@ fn frozen_stage4_object_links_unchanged_into_stage5_executor() {
 
 #[test]
 fn representative_abi_v3_output_is_byte_stable() {
-    let source = include_str!("fixtures/planning/representative.cr");
-    let actual = compile_with_optimization(source, "representative.cr", OptimizationLevel::None);
+    let canonical_lf = |text: &str| text.replace("\r\n", "\n").replace('\r', "\n");
+    let source = canonical_lf(include_str!("fixtures/planning/representative.cr"));
+    let actual = compile_with_optimization(&source, "representative.cr", OptimizationLevel::None);
     if std::env::var_os("CRC_UPDATE_ABI_GOLDEN").is_some() {
         let path =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/planning/abi-v3-baseline.c");
         fs::write(path, &actual).expect("ABI v3 golden is updated");
     }
-    let expected = include_str!("fixtures/planning/abi-v3-baseline.c");
+    let expected = canonical_lf(include_str!("fixtures/planning/abi-v3-baseline.c"));
     assert_eq!(actual, expected);
 }
 
