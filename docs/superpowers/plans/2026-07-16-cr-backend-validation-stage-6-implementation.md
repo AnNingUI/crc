@@ -134,10 +134,11 @@ Completed: Task 5 cancellation and allocation hardening
 Completed: Task 6 Windows IOCP provider
 Completed: Task 7 Linux epoll provider
 Completed: Task 8 macOS kqueue provider
-In progress: Task 9 cross-provider differential analysis
-Next: Run the Backend differential workflow on Windows, Linux, and macOS
-Pending: Tasks 10 through 13
-External gate: GitHub Actions macos-14 execution passed on July 17, 2026
+Completed: Task 9 cross-provider differential analysis
+Completed: Task 10 freeze the proven semantic prefix
+Next: Task 11 complete generated-project integration
+Pending: Tasks 11 through 13
+External gate: Backend differential passed on Windows, Linux, and macOS
 ```
 
 ## Task 1: Add backend selection without changing output
@@ -637,7 +638,7 @@ cargo test --test backend_differential
 - The surviving common prefix has evidence from every required provider.
 - No interface is stable yet.
 
-**Implementation evidence pending three-host CI (2026-07-17):**
+**Implementation and acceptance evidence (2026-07-17):**
 
 - The approved
   [differential validation design](../specs/2026-07-17-cr-backend-differential-stage-6-task-9-design.md)
@@ -653,8 +654,8 @@ cargo test --test backend_differential
   `windows-2022`, `ubuntu-24.04`, and `macos-14`.
 - Formatting, all-target checks, Clippy with warnings denied, grammar tests,
   153 library tests, and every local integration target pass.
-- Task 9 remains incomplete until the real Linux epoll and macOS kqueue jobs
-  match the canonical transcript.
+- GitHub Actions confirms that the real Windows IOCP, Linux epoll, and macOS
+  kqueue providers match the canonical memory transcript.
 
 ## Task 10: Freeze the proven semantic prefix
 
@@ -707,6 +708,21 @@ cargo test --test backend_abi
 - Every frozen field has four-provider conformance evidence.
 - Provider, reference awaitable, and operation layouts remain opaque.
 - Core ABI v3 and Waker v1 don't change.
+
+**Implementation and acceptance evidence (2026-07-17):**
+
+- RFC0003 records Backend core v1 and net receive v1 observable semantics.
+- `CR_BACKEND_ABI_VERSION` and `CR_NET_ABI_VERSION` are stable v1 names. The
+  Stage 6 experimental names remain source-compatible aliases.
+- Stable header regions have checked-in FNV-1a byte digests. Any byte change
+  fails until an approved ABI revision updates the fixture.
+- `cr_extension_id` and `cr_native_socket_handle` are fixed by-value v1 types.
+  Only compatible pointer-transported records can append fields.
+- Reference Provider symbols and the receive awaitable remain experimental.
+- RFC0001 classifies Backend v1 as a stable extension without changing core
+  runtime ABI v3 or Waker v1.
+- The user approved RFC0003 on July 17, 2026. Backend core v1 and net receive
+  v1 are now stable extension contracts.
 
 ## Task 11: Complete generated-project integration
 

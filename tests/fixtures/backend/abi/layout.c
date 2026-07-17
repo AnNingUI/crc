@@ -11,14 +11,18 @@ typedef struct future_net_desc {
 } future_net_desc;
 
 _Static_assert(
-    CR_BACKEND_EXPERIMENTAL_ABI_VERSION == 1u,
-    "backend experimental ABI version"
+    CR_BACKEND_ABI_VERSION == 1u,
+    "backend stable ABI version"
 );
 _Static_assert(
-    CR_NET_EXPERIMENTAL_ABI_VERSION == 1u,
-    "net experimental ABI version"
+    CR_NET_ABI_VERSION == 1u,
+    "net stable ABI version"
 );
 _Static_assert(sizeof(cr_extension_id) == 16u, "128-bit extension identity");
+_Static_assert(
+    CR_EXTENSION_ID_V1_SIZE == 16u,
+    "extension identity is a fixed v1 value type"
+);
 _Static_assert(
     offsetof(cr_backend_provider_desc, capability_bits) == 8u,
     "provider capability offset"
@@ -57,6 +61,10 @@ _Static_assert(
 _Static_assert(
     sizeof(((cr_native_socket_handle *)0)->value) == sizeof(uintptr_t),
     "native socket uses uintptr_t storage"
+);
+_Static_assert(
+    CR_NATIVE_SOCKET_HANDLE_V1_SIZE == sizeof(cr_native_socket_handle),
+    "native socket handle is a fixed v1 value type"
 );
 _Static_assert(
     CR_NET_ERROR_V1_MIN_SIZE == sizeof(cr_net_error),

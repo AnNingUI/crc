@@ -339,7 +339,7 @@ fn memory_provider_links_for_wasi_without_shared_memory_or_threads() {
 }
 
 #[test]
-fn memory_artifact_query_does_not_change_default_project_publication() {
+fn memory_selection_publishes_portable_provider_and_reference_awaitable() {
     let artifacts = memory_artifacts();
     assert!(
         artifacts
@@ -359,8 +359,14 @@ fn memory_artifact_query_does_not_change_default_project_publication() {
     .expect("source");
     crc_lib::Compiler::new(config)
         .build_project(root)
-        .expect("selected project builds without publishing Task 3 artifacts");
-    assert!(!root.join("crc/dist/include/cr_backend.h").exists());
-    assert!(!root.join("crc/dist/include/cr_net.h").exists());
-    assert!(!root.join("crc/dist/runtime/cr_backend_memory.c").exists());
+        .expect("selected memory project publishes Backend artifacts");
+    assert!(root.join("crc/dist/include/cr_backend.h").is_file());
+    assert!(root.join("crc/dist/include/cr_net.h").is_file());
+    assert!(root.join("crc/dist/runtime/cr_backend_memory.c").is_file());
+    assert!(root.join("crc/dist/runtime/cr_net_recv.c").is_file());
+    assert!(
+        !root
+            .join("crc/dist/crc-generated-dependencies.cmake")
+            .exists()
+    );
 }

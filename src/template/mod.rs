@@ -114,8 +114,8 @@ mod tests {
             fs::read_to_string(directory.path().join("CMakeLists.txt")).expect("CMake template");
         assert!(cmake.contains("project(template_test LANGUAGES C)"));
         assert!(cmake.contains("${CR_DIST_DIR}/include"));
-        assert!(cmake.contains("cr_executor_threaded_posix.c"));
-        assert!(cmake.contains("Threads::Threads"));
+        assert!(cmake.contains("crc-generated-dependencies.cmake"));
+        assert!(cmake.contains("CR_GENERATED_DEPENDENCIES"));
         let meson =
             fs::read_to_string(directory.path().join("meson.build")).expect("Meson template");
         assert!(meson.contains("dependencies: cr_generated_dependencies"));

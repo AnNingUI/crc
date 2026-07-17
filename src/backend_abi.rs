@@ -1,24 +1,30 @@
-//! Experimental Stage 6 backend and net-receive C ABI declarations.
+//! Stable Backend core and net-receive v1 C ABI declarations.
 
-/// Experimental backend ABI version used during Stage 6 validation.
-pub const CR_BACKEND_EXPERIMENTAL_ABI_VERSION: u32 = 1;
+/// Stable Backend core ABI version.
+pub const CR_BACKEND_ABI_VERSION: u32 = 1;
 
-/// Experimental net-receive ABI version used during Stage 6 validation.
-pub const CR_NET_EXPERIMENTAL_ABI_VERSION: u32 = 1;
+/// Stable net-receive extension ABI version.
+pub const CR_NET_ABI_VERSION: u32 = 1;
 
-/// Candidate 128-bit identity for the backend core provider contract.
+/// Source-compatible Stage 6 alias for [`CR_BACKEND_ABI_VERSION`].
+pub const CR_BACKEND_EXPERIMENTAL_ABI_VERSION: u32 = CR_BACKEND_ABI_VERSION;
+
+/// Source-compatible Stage 6 alias for [`CR_NET_ABI_VERSION`].
+pub const CR_NET_EXPERIMENTAL_ABI_VERSION: u32 = CR_NET_ABI_VERSION;
+
+/// Stable 128-bit identity for the Backend core Provider contract.
 pub const CR_BACKEND_CORE_ID_HIGH: u64 = 0x4352_5f42_4143_4b45;
 
 /// Low word of the backend core provider contract identity.
 pub const CR_BACKEND_CORE_ID_LOW: u64 = 0x4e44_5f43_4f52_4531;
 
-/// Candidate 128-bit identity for the one-shot net-receive extension.
+/// Stable 128-bit identity for the one-shot net-receive extension.
 pub const CR_NET_RECEIVE_EXTENSION_ID_HIGH: u64 = 0x4352_5f4e_4554_5f52;
 
 /// Low word of the one-shot net-receive extension identity.
 pub const CR_NET_RECEIVE_EXTENSION_ID_LOW: u64 = 0x4543_4549_5645_5f31;
 
-/// Returns the experimental portable C11 backend core header.
+/// Returns the stable portable C11 Backend core header.
 #[must_use]
 pub fn backend_header() -> &'static str {
     r#"#ifndef CR_BACKEND_H
@@ -28,7 +34,8 @@ pub fn backend_header() -> &'static str {
 #include <stddef.h>
 #include <stdint.h>
 
-/* Experimental Stage 6 declarations. Exact callback layout can change. */
+/* Stable Backend core v1. Append fields only after each v1 minimum prefix. */
+/* CR_STABLE_BACKEND_V1_BEGIN */
 
 typedef struct cr_backend cr_backend;
 typedef struct cr_backend_provider_desc cr_backend_provider_desc;
@@ -121,12 +128,15 @@ struct cr_backend_extension_desc {
     cr_extension_id extension_id;
 };
 
-#define CR_BACKEND_EXPERIMENTAL_ABI_VERSION 1u
+#define CR_BACKEND_ABI_VERSION 1u
+#define CR_BACKEND_EXPERIMENTAL_ABI_VERSION CR_BACKEND_ABI_VERSION
 
 #define CR_BACKEND_CORE_ID_HIGH UINT64_C(0x43525f4241434b45)
 #define CR_BACKEND_CORE_ID_LOW  UINT64_C(0x4e445f434f524531)
 #define CR_BACKEND_CORE_ID_INIT \
     {CR_BACKEND_CORE_ID_HIGH, CR_BACKEND_CORE_ID_LOW}
+
+#define CR_EXTENSION_ID_V1_SIZE sizeof(cr_extension_id)
 
 #define CR_BACKEND_PROVIDER_DESC_PREFIX_SIZE \
     (offsetof(cr_backend_provider_desc, provider_id) + \
@@ -189,7 +199,7 @@ static inline bool cr_storage_layout_is_valid(
     uint64_t alignment;
 
     if (layout == NULL ||
-        layout->abi_version < CR_BACKEND_EXPERIMENTAL_ABI_VERSION ||
+        layout->abi_version < CR_BACKEND_ABI_VERSION ||
         layout->struct_size < CR_STORAGE_LAYOUT_V1_MIN_SIZE ||
         layout->size == UINT64_C(0)) {
         return false;
@@ -203,7 +213,7 @@ static inline bool cr_backend_provider_desc_is_compatible(
     const cr_backend_provider_desc *provider
 ) {
     return provider != NULL &&
-        provider->abi_version >= CR_BACKEND_EXPERIMENTAL_ABI_VERSION &&
+        provider->abi_version >= CR_BACKEND_ABI_VERSION &&
         provider->struct_size >= CR_BACKEND_PROVIDER_DESC_V1_MIN_SIZE &&
         cr_extension_id_is_valid(provider->provider_id) &&
         provider->create != NULL &&
@@ -265,11 +275,13 @@ bool cr_backend_interrupt(
     cr_backend_error *out_error
 );
 
+/* CR_STABLE_BACKEND_V1_END */
+
 #endif
 "#
 }
 
-/// Returns the experimental portable C11 net-receive extension header.
+/// Returns the stable portable C11 net-receive extension header.
 #[must_use]
 pub fn net_header() -> &'static str {
     r#"#ifndef CR_NET_H
@@ -277,14 +289,11 @@ pub fn net_header() -> &'static str {
 
 #include "cr_backend.h"
 
-/* Experimental Stage 6 declarations. Exact callback layout can change. */
+/* Stable net-receive v1. Append fields only after each v1 minimum prefix. */
+/* CR_STABLE_NET_V1_BEGIN */
 
 typedef struct cr_net_receive_operation cr_net_receive_operation;
 typedef struct cr_net_extension_desc cr_net_extension_desc;
-typedef struct cr_net_receive_awaitable_state
-    cr_net_receive_awaitable_state;
-typedef struct cr_awaitable cr_awaitable;
-typedef struct cr_error cr_error;
 
 typedef uint32_t cr_native_socket_kind;
 typedef uint32_t cr_net_error_category;
@@ -366,12 +375,16 @@ struct cr_net_extension_desc {
     cr_net_receive_destroy_fn receive_destroy;
 };
 
-#define CR_NET_EXPERIMENTAL_ABI_VERSION 1u
+#define CR_NET_ABI_VERSION 1u
+#define CR_NET_EXPERIMENTAL_ABI_VERSION CR_NET_ABI_VERSION
 
 #define CR_NET_RECEIVE_EXTENSION_ID_HIGH UINT64_C(0x43525f4e45545f52)
 #define CR_NET_RECEIVE_EXTENSION_ID_LOW  UINT64_C(0x4543454956455f31)
 #define CR_NET_RECEIVE_EXTENSION_ID_INIT \
     {CR_NET_RECEIVE_EXTENSION_ID_HIGH, CR_NET_RECEIVE_EXTENSION_ID_LOW}
+
+#define CR_NATIVE_SOCKET_HANDLE_V1_SIZE \
+    sizeof(cr_native_socket_handle)
 
 #define CR_NET_EXTENSION_DESC_V1_MIN_SIZE \
     (offsetof(cr_net_extension_desc, receive_destroy) + \
@@ -427,7 +440,7 @@ static inline bool cr_net_receive_completion_has_v1_prefix(
     const cr_net_receive_completion *completion
 ) {
     return completion != NULL &&
-        completion->abi_version >= CR_NET_EXPERIMENTAL_ABI_VERSION &&
+        completion->abi_version >= CR_NET_ABI_VERSION &&
         completion->struct_size >= CR_NET_RECEIVE_COMPLETION_V1_MIN_SIZE;
 }
 
@@ -440,7 +453,7 @@ static inline bool cr_net_extension_desc_is_compatible(
         cr_backend_extension_desc_is_compatible(
             &extension->base,
             expected,
-            CR_NET_EXPERIMENTAL_ABI_VERSION
+            CR_NET_ABI_VERSION
         ) &&
         extension->base.struct_size >= CR_NET_EXTENSION_DESC_V1_MIN_SIZE &&
         cr_storage_layout_is_valid(&extension->receive_operation_layout) &&
@@ -450,6 +463,14 @@ static inline bool cr_net_extension_desc_is_compatible(
         extension->receive_quiesce != NULL &&
         extension->receive_destroy != NULL;
 }
+
+/* CR_STABLE_NET_V1_END */
+
+/* Experimental reference awaitable adapter. Layout and API can change. */
+typedef struct cr_net_receive_awaitable_state
+    cr_net_receive_awaitable_state;
+typedef struct cr_awaitable cr_awaitable;
+typedef struct cr_error cr_error;
 
 cr_storage_layout cr_net_receive_awaitable_state_layout(void);
 
@@ -489,15 +510,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn headers_publish_only_experimental_opaque_backend_boundaries() {
+    fn headers_publish_stable_v1_and_keep_runtime_objects_opaque() {
         let backend = backend_header();
         let net = net_header();
-        assert!(backend.contains("CR_BACKEND_EXPERIMENTAL_ABI_VERSION 1u"));
+        assert!(backend.contains("CR_BACKEND_ABI_VERSION 1u"));
+        assert!(backend.contains("CR_STABLE_BACKEND_V1_BEGIN"));
+        assert!(backend.contains("CR_STABLE_BACKEND_V1_END"));
         assert!(backend.contains("typedef struct cr_extension_id"));
         assert!(backend.contains("CR_BACKEND_PROVIDER_DESC_PREFIX_SIZE"));
         assert!(backend.contains("CR_BACKEND_PUMP_RESULT_V1_MIN_SIZE"));
         assert!(backend.contains("bool cr_backend_interrupt("));
-        assert!(net.contains("CR_NET_EXPERIMENTAL_ABI_VERSION 1u"));
+        assert!(net.contains("CR_NET_ABI_VERSION 1u"));
+        assert!(net.contains("CR_STABLE_NET_V1_BEGIN"));
+        assert!(net.contains("CR_STABLE_NET_V1_END"));
         assert!(net.contains("uintptr_t value"));
         assert!(net.contains("CR_NET_RECEIVE_COMPLETION_V1_MIN_SIZE"));
         assert!(net.contains("cr_net_receive_operation *operation"));
@@ -506,8 +531,10 @@ mod tests {
             assert!(!backend.to_ascii_lowercase().contains(forbidden));
             assert!(!net.to_ascii_lowercase().contains(forbidden));
         }
-        assert_eq!(CR_BACKEND_EXPERIMENTAL_ABI_VERSION, 1);
-        assert_eq!(CR_NET_EXPERIMENTAL_ABI_VERSION, 1);
+        assert_eq!(CR_BACKEND_ABI_VERSION, 1);
+        assert_eq!(CR_NET_ABI_VERSION, 1);
+        assert_eq!(CR_BACKEND_EXPERIMENTAL_ABI_VERSION, CR_BACKEND_ABI_VERSION);
+        assert_eq!(CR_NET_EXPERIMENTAL_ABI_VERSION, CR_NET_ABI_VERSION);
     }
 
     #[test]

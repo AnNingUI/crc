@@ -11,6 +11,8 @@ The design builds on the approved
 [RFC0001](../../rfcs/0001-core-coroutine-contract.md),
 [RFC0002](../../rfcs/0002-waker-contract.md), and the completed
 [Stage 5 design](2026-07-15-cr-waker-reference-executor-stage-5-design.md).
+The validated stable prefix is defined by
+[RFC0003](../../rfcs/0003-backend-core-and-net-receive-contract.md).
 
 ## Decision
 
@@ -32,9 +34,9 @@ Stage 6 validates four providers:
   `wasm32-wasi` compilation.
 
 The memory provider doesn't count as one of the required real event models.
-All interfaces remain experimental during validation. Only the common prefix
-that survives IOCP, epoll, kqueue, cancellation, quiescence, and WebAssembly
-conformance can become a stable RFC at the end of Stage 6.
+IOCP, epoll, and kqueue passed the common differential lifecycle on their real
+hosts. Backend core v1 and net receive v1 are stable through RFC0003; reference
+Provider implementations and the reference awaitable remain experimental.
 
 ## Goals
 
@@ -116,12 +118,11 @@ callback enters generated poll code.
 
 ## Stability policy
 
-Stage 6 separates validation declarations from stable ABI promises.
+Stage 6 separates stable v1 prefixes from experimental implementations.
 
-During the first implementation tasks, `cr_backend.h`, `cr_net.h`, provider
-descriptors, extension descriptors, and operation methods are experimental.
-Tests can change their exact layout while the three native providers expose
-model differences.
+During the first implementation tasks, `cr_backend.h`, `cr_net.h`, Provider
+descriptors, extension descriptors, and operation methods were experimental.
+Task 9 proved their common behavior across the three native event models.
 
 The final stabilization pass follows these rules:
 
@@ -135,14 +136,14 @@ The final stabilization pass follows these rules:
 - Keep provider implementations and reference awaitables independently
   replaceable.
 
-Stage 6 can finish without stabilizing a method when the provider evidence
-shows that no honest common contract exists.
+Task 10 freezes the surviving append-only prefixes and semantics in RFC0003.
+Backend instances, receive operations, native events, reference Provider
+symbols, and reference awaitable state remain opaque or experimental.
 
 ## Backend core
 
 The backend core is an opaque owner-driven service with versioned extension
-discovery. The following declarations are conceptual and remain experimental
-until the final stabilization pass.
+discovery. RFC0003 stabilizes its v1 public prefixes and observable behavior.
 
 ```c
 typedef struct cr_backend cr_backend;
@@ -637,7 +638,7 @@ Selection follows these rules:
 - A failed selection or build preserves the last complete published artifact
   set.
 
-The experimental artifact set can include:
+The stable public and experimental implementation artifact set can include:
 
 - `include/cr_backend.h`.
 - `include/cr_net.h`.

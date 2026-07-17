@@ -351,7 +351,8 @@ impl Compiler {
                 kind: "runtime-extension",
             },
         ];
-        let mut executor_sources = Vec::new();
+        let mut runtime_sources = Vec::new();
+        let mut build_dependencies = Vec::new();
         let executor_artifacts = match runtime_selection.executor {
             config::ExecutorSelection::Manual => Vec::new(),
             config::ExecutorSelection::SingleThread => {
@@ -361,14 +362,16 @@ impl Compiler {
                 executor_runtime::native_threaded_artifacts(&self.config.build.target)
             }
         };
-        let executor_needs_threads = executor_artifacts
-            .iter()
-            .any(|artifact| artifact.path == "runtime/cr_executor_threaded_posix.c");
+        if runtime_selection.executor == config::ExecutorSelection::NativeThreaded
+            && target_uses_posix_threads(&self.config.build.target)
+        {
+            insert_build_dependency(&mut build_dependencies, BuildDependency::PosixThreads);
+        }
         if !executor_artifacts.is_empty() {
             for executor_artifact in &executor_artifacts {
                 let output = PathBuf::from(executor_artifact.path);
                 if executor_artifact.is_source {
-                    executor_sources.push(output.clone());
+                    runtime_sources.push(output.clone());
                 }
                 artifacts.push(Artifact {
                     input: None,
@@ -378,7 +381,37 @@ impl Compiler {
                 });
             }
         }
-        let _selected_backends = runtime_selection.backends;
+        for selection in runtime_selection.backends {
+            let mut selected = match selection {
+                config::BackendSelection::MemoryConformance => backend_runtime::memory_artifacts(),
+                config::BackendSelection::NativeNet => {
+                    let artifacts =
+                        backend_runtime::native_net_artifacts_for_target(&self.config.build.target)
+                            .context("validated native-net target has no reference Provider")?;
+                    if target_uses_winsock(&self.config.build.target) {
+                        insert_build_dependency(&mut build_dependencies, BuildDependency::WinSock);
+                    }
+                    artifacts
+                }
+            };
+            selected.push(backend_runtime::net_awaitable_artifact());
+            for backend_artifact in selected {
+                let output = PathBuf::from(backend_artifact.path);
+                let is_source = backend_artifact.is_source;
+                let inserted = push_unique_artifact(
+                    &mut artifacts,
+                    Artifact {
+                        input: None,
+                        output: output.clone(),
+                        contents: backend_artifact.contents.to_owned(),
+                        kind: backend_artifact.kind,
+                    },
+                )?;
+                if inserted && is_source {
+                    runtime_sources.push(output);
+                }
+            }
+        }
 
         let header_dir = resolve_project_path(
             project_root,
@@ -488,7 +521,7 @@ impl Compiler {
         reject_errors(&planning.diagnostics)?;
         drop(planning_functions);
 
-        let mut generated_sources = Vec::with_capacity(source_units.len() + executor_sources.len());
+        let mut generated_sources = Vec::with_capacity(source_units.len() + runtime_sources.len());
         for source_unit in source_units {
             let contents = self.emit_lowered_source(
                 &source_unit.source,
@@ -506,17 +539,29 @@ impl Compiler {
             });
             generated_sources.push(source_unit.output_path);
         }
-        generated_sources.extend(executor_sources);
+        generated_sources.extend(runtime_sources);
         artifacts.push(Artifact {
             input: None,
             output: PathBuf::from("meson.build"),
-            contents: meson_source_manifest(&generated_sources, executor_needs_threads),
+            contents: meson_source_manifest(&generated_sources, &build_dependencies),
             kind: "build-manifest",
         });
+        if let Some(contents) = cmake_dependency_manifest(&build_dependencies) {
+            artifacts.push(Artifact {
+                input: None,
+                output: PathBuf::from("crc-generated-dependencies.cmake"),
+                contents,
+                kind: "build-manifest",
+            });
+        }
 
         let manifest = ArtifactManifest {
             compiler_version: env!("CARGO_PKG_VERSION"),
             runtime_abi_version: runtime_abi::CR_RUNTIME_ABI_VERSION,
+            dependencies: build_dependencies
+                .iter()
+                .map(|dependency| dependency.as_str())
+                .collect(),
             artifacts: artifacts
                 .iter()
                 .map(|artifact| ArtifactRecord {
@@ -544,6 +589,21 @@ struct Artifact {
     kind: &'static str,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum BuildDependency {
+    PosixThreads,
+    WinSock,
+}
+
+impl BuildDependency {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::PosixThreads => "posix-threads",
+            Self::WinSock => "winsock",
+        }
+    }
+}
+
 struct ProjectSourceUnit {
     project_path: PathBuf,
     output_path: PathBuf,
@@ -556,6 +616,8 @@ struct ProjectSourceUnit {
 struct ArtifactManifest<'a> {
     compiler_version: &'a str,
     runtime_abi_version: u32,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    dependencies: Vec<&'static str>,
     artifacts: Vec<ArtifactRecord>,
 }
 
@@ -591,6 +653,49 @@ fn project_relative(project_root: &Path, path: &Path) -> PathBuf {
 
 fn path_for_manifest(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
+}
+
+fn push_unique_artifact(artifacts: &mut Vec<Artifact>, candidate: Artifact) -> Result<bool> {
+    if let Some(existing) = artifacts
+        .iter()
+        .find(|artifact| artifact.output == candidate.output)
+    {
+        if existing.input == candidate.input
+            && existing.contents == candidate.contents
+            && existing.kind == candidate.kind
+        {
+            return Ok(false);
+        }
+        anyhow::bail!(
+            "conflicting generated artifact `{}`",
+            path_for_manifest(&candidate.output)
+        );
+    }
+    artifacts.push(candidate);
+    Ok(true)
+}
+
+fn insert_build_dependency(dependencies: &mut Vec<BuildDependency>, dependency: BuildDependency) {
+    if !dependencies.contains(&dependency) {
+        dependencies.push(dependency);
+        dependencies.sort_unstable();
+    }
+}
+
+fn target_uses_posix_threads(target: &config::TargetConfig) -> bool {
+    matches!(
+        target,
+        config::TargetConfig::LinuxGnu
+            | config::TargetConfig::LinuxMusl
+            | config::TargetConfig::Macos
+    ) || matches!(target, config::TargetConfig::Host) && cfg!(unix)
+}
+
+fn target_uses_winsock(target: &config::TargetConfig) -> bool {
+    matches!(
+        target,
+        config::TargetConfig::WindowsMsvc | config::TargetConfig::WindowsGnu
+    ) || matches!(target, config::TargetConfig::Host) && cfg!(windows)
 }
 
 fn publish_artifacts(dist_dir: &Path, artifacts: &[Artifact]) -> Result<()> {
@@ -651,7 +756,29 @@ fn publish_artifacts(dist_dir: &Path, artifacts: &[Artifact]) -> Result<()> {
     Ok(())
 }
 
-fn meson_source_manifest(sources: &[std::path::PathBuf], needs_threads: bool) -> String {
+fn cmake_dependency_manifest(dependencies: &[BuildDependency]) -> Option<String> {
+    if dependencies.is_empty() {
+        return None;
+    }
+    let mut manifest = String::from("set(CR_GENERATED_DEPENDENCIES)\n");
+    for dependency in dependencies {
+        match dependency {
+            BuildDependency::PosixThreads => manifest.push_str(
+                "find_package(Threads REQUIRED)\n\
+                 list(APPEND CR_GENERATED_DEPENDENCIES Threads::Threads)\n",
+            ),
+            BuildDependency::WinSock => {
+                manifest.push_str("list(APPEND CR_GENERATED_DEPENDENCIES ws2_32)\n")
+            }
+        }
+    }
+    Some(manifest)
+}
+
+fn meson_source_manifest(
+    sources: &[std::path::PathBuf],
+    dependencies: &[BuildDependency],
+) -> String {
     let mut manifest = if sources.is_empty() {
         "cr_generated_sources = []\n".to_owned()
     } else {
@@ -668,10 +795,24 @@ fn meson_source_manifest(sources: &[std::path::PathBuf], needs_threads: bool) ->
         sources_manifest.push_str(")\n");
         sources_manifest
     };
-    if needs_threads {
-        manifest.push_str("cr_generated_dependencies = [dependency('threads')]\n");
-    } else {
+    if dependencies.contains(&BuildDependency::WinSock) {
+        manifest.push_str("cr_generated_c_compiler = meson.get_compiler('c')\n");
+    }
+    if dependencies.is_empty() {
         manifest.push_str("cr_generated_dependencies = []\n");
+    } else {
+        manifest.push_str("cr_generated_dependencies = [\n");
+        for dependency in dependencies {
+            match dependency {
+                BuildDependency::PosixThreads => {
+                    manifest.push_str("  dependency('threads'),\n");
+                }
+                BuildDependency::WinSock => manifest.push_str(
+                    "  cr_generated_c_compiler.find_library('ws2_32', required: true),\n",
+                ),
+            }
+        }
+        manifest.push_str("]\n");
     }
     manifest
 }
@@ -734,7 +875,7 @@ mod tests {
         BackendSelection, Config, ExecutorSelection, OptimizationLevel, TargetConfig,
     };
 
-    use super::{Compiler, meson_source_manifest};
+    use super::{BuildDependency, Compiler, cmake_dependency_manifest, meson_source_manifest};
 
     #[test]
     fn compiler_pipeline_retains_target_and_optimization_selection() {
@@ -785,7 +926,7 @@ mod tests {
     fn meson_manifest_is_deterministic_and_uses_portable_separators() {
         let manifest = meson_source_manifest(
             &[PathBuf::from("nested\\worker.c"), PathBuf::from("main.c")],
-            false,
+            &[],
         );
         assert_eq!(
             manifest,
@@ -795,10 +936,35 @@ mod tests {
 
     #[test]
     fn meson_manifest_records_only_the_posix_thread_dependency() {
-        let manifest = meson_source_manifest(&[PathBuf::from("runtime/worker.c")], true);
+        let manifest = meson_source_manifest(
+            &[PathBuf::from("runtime/worker.c")],
+            &[BuildDependency::PosixThreads],
+        );
         assert_eq!(
             manifest,
-            "cr_generated_sources = files(\n  'runtime/worker.c',\n)\ncr_generated_dependencies = [dependency('threads')]\n"
+            "cr_generated_sources = files(\n  'runtime/worker.c',\n)\ncr_generated_dependencies = [\n  dependency('threads'),\n]\n"
+        );
+    }
+
+    #[test]
+    fn build_manifests_render_winsock_from_the_explicit_dependency_plan() {
+        let dependencies = [BuildDependency::WinSock];
+        assert_eq!(
+            cmake_dependency_manifest(&dependencies).as_deref(),
+            Some(
+                "set(CR_GENERATED_DEPENDENCIES)\n\
+                 list(APPEND CR_GENERATED_DEPENDENCIES ws2_32)\n"
+            )
+        );
+        assert_eq!(
+            meson_source_manifest(&[], &dependencies),
+            concat!(
+                "cr_generated_sources = []\n",
+                "cr_generated_c_compiler = meson.get_compiler('c')\n",
+                "cr_generated_dependencies = [\n",
+                "  cr_generated_c_compiler.find_library('ws2_32', required: true),\n",
+                "]\n",
+            )
         );
     }
 }

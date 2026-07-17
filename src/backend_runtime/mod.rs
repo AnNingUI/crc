@@ -68,7 +68,7 @@ pub fn net_awaitable_artifact() -> BackendArtifact {
     BackendArtifact {
         path: "runtime/cr_net_recv.c",
         contents: net::NET_RECEIVE_SOURCE,
-        kind: "backend-source",
+        kind: "backend-awaitable-source",
         is_source: true,
     }
 }

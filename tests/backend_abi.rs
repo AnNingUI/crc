@@ -4,13 +4,14 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use crc_lib::backend_abi::{
-    CR_BACKEND_CORE_ID_HIGH, CR_BACKEND_CORE_ID_LOW, CR_BACKEND_EXPERIMENTAL_ABI_VERSION,
-    CR_NET_EXPERIMENTAL_ABI_VERSION, CR_NET_RECEIVE_EXTENSION_ID_HIGH,
-    CR_NET_RECEIVE_EXTENSION_ID_LOW, backend_header, net_header,
+    CR_BACKEND_ABI_VERSION, CR_BACKEND_CORE_ID_HIGH, CR_BACKEND_CORE_ID_LOW,
+    CR_BACKEND_EXPERIMENTAL_ABI_VERSION, CR_NET_ABI_VERSION, CR_NET_EXPERIMENTAL_ABI_VERSION,
+    CR_NET_RECEIVE_EXTENSION_ID_HIGH, CR_NET_RECEIVE_EXTENSION_ID_LOW, backend_header, net_header,
 };
 
 const WASI_SDK_VERSION: &str = include_str!("../tools/wasi-sdk.version");
 const FIXTURE_NAMES: [&str; 2] = ["layout.c", "protocol.c"];
+const STABLE_PREFIX_DIGESTS: &str = include_str!("fixtures/backend/stable/prefixes.fnv64");
 
 fn run(command: &mut Command) -> Output {
     command.output().expect("command starts")
@@ -47,6 +48,29 @@ fn write_headers(directory: &Path) {
     fs::write(directory.join("cr_net.h"), net_header()).expect("net header");
 }
 
+fn stable_region<'a>(header: &'a str, begin: &str, end: &str) -> &'a str {
+    let (_, after_begin) = header.split_once(begin).expect("stable begin marker");
+    let (region, _) = after_begin.split_once(end).expect("stable end marker");
+    region
+}
+
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+fn expected_digest(name: &str) -> u64 {
+    STABLE_PREFIX_DIGESTS
+        .lines()
+        .find_map(|line| line.split_once('=').filter(|(key, _)| *key == name))
+        .map(|(_, value)| u64::from_str_radix(value, 16).expect("hex digest"))
+        .expect("stable prefix digest")
+}
+
 fn required_wasm() -> bool {
     env::var("CRC_REQUIRE_WASM").is_ok_and(|value| value == "1")
 }
@@ -63,9 +87,11 @@ fn wasi_root() -> Option<PathBuf> {
 }
 
 #[test]
-fn experimental_identity_constants_match_the_public_headers() {
-    assert_eq!(CR_BACKEND_EXPERIMENTAL_ABI_VERSION, 1);
-    assert_eq!(CR_NET_EXPERIMENTAL_ABI_VERSION, 1);
+fn stable_identity_constants_match_the_public_headers() {
+    assert_eq!(CR_BACKEND_ABI_VERSION, 1);
+    assert_eq!(CR_NET_ABI_VERSION, 1);
+    assert_eq!(CR_BACKEND_EXPERIMENTAL_ABI_VERSION, CR_BACKEND_ABI_VERSION);
+    assert_eq!(CR_NET_EXPERIMENTAL_ABI_VERSION, CR_NET_ABI_VERSION);
     assert_eq!(CR_BACKEND_CORE_ID_HIGH, 0x4352_5f42_4143_4b45);
     assert_eq!(CR_BACKEND_CORE_ID_LOW, 0x4e44_5f43_4f52_4531);
     assert_eq!(CR_NET_RECEIVE_EXTENSION_ID_HIGH, 0x4352_5f4e_4554_5f52);
@@ -102,7 +128,35 @@ fn headers_keep_runtime_objects_and_native_apis_out_of_the_public_boundary() {
 }
 
 #[test]
-fn experimental_records_compile_and_run_with_native_c11_compilers() {
+fn stable_v1_prefix_bytes_match_the_frozen_digest_fixture() {
+    let backend = stable_region(
+        backend_header(),
+        "/* CR_STABLE_BACKEND_V1_BEGIN */",
+        "/* CR_STABLE_BACKEND_V1_END */",
+    );
+    let net = stable_region(
+        net_header(),
+        "/* CR_STABLE_NET_V1_BEGIN */",
+        "/* CR_STABLE_NET_V1_END */",
+    );
+    let backend_digest = fnv1a64(backend.as_bytes());
+    let net_digest = fnv1a64(net.as_bytes());
+    assert_eq!(
+        backend_digest,
+        expected_digest("cr_backend_v1"),
+        "update only after an approved Backend v1 ABI revision; actual={backend_digest:016x}"
+    );
+    assert_eq!(
+        net_digest,
+        expected_digest("cr_net_v1"),
+        "update only after an approved net v1 ABI revision; actual={net_digest:016x}"
+    );
+    assert!(!net.contains("cr_net_receive_awaitable_state"));
+    assert!(!net.contains("cr_awaitable"));
+}
+
+#[test]
+fn stable_records_compile_and_run_with_native_c11_compilers() {
     let compilers = available_compilers();
     assert!(!compilers.is_empty(), "Clang or GCC is required");
     for compiler in compilers {
@@ -137,7 +191,7 @@ fn experimental_records_compile_and_run_with_native_c11_compilers() {
 }
 
 #[test]
-fn experimental_records_compile_for_pinned_wasm32_wasi() {
+fn stable_records_compile_for_pinned_wasm32_wasi() {
     let Some(wasi_root) = wasi_root() else {
         return;
     };

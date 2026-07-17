@@ -22,9 +22,11 @@ add_executable(${PROJECT_NAME}
     ${CR_GENERATED_SOURCES}
 )
 
-if(EXISTS "${CR_DIST_DIR}/runtime/cr_executor_threaded_posix.c")
-    find_package(Threads REQUIRED)
-    target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
+include("${CR_DIST_DIR}/crc-generated-dependencies.cmake" OPTIONAL)
+if(CR_GENERATED_DEPENDENCIES)
+    target_link_libraries(${PROJECT_NAME} PRIVATE
+        ${CR_GENERATED_DEPENDENCIES}
+    )
 endif()
 
 target_include_directories(${PROJECT_NAME} PRIVATE

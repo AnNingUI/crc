@@ -6,8 +6,11 @@ context layouts.
 
 > **Note:** Core ABI v3 is the implemented runtime boundary. CR doesn't provide
 > an ABI v2 compatibility path. The stable Waker extension contract is defined
-> by [RFC0002](0002-waker-contract.md); its implementation is pending.
-> Reference executor, reactor, and backend APIs remain experimental.
+> by [RFC0002](0002-waker-contract.md). The stable Backend core and net-receive
+> extension is defined by
+> [RFC0003](0003-backend-core-and-net-receive-contract.md). Reference executor,
+> Provider implementations, reactors, and other I/O extensions remain
+> experimental.
 
 ## Contract boundary
 
@@ -123,9 +126,13 @@ The architecture uses these compatibility classes:
   pending.
 - **Implemented compiler extension:** typed static dispatch remains governed by
   the core lifecycle and ownership rules in this RFC.
-- **Experimental extensions:** reference executor, reactor, backend SPI,
-  generator integration, and stronger dynamic type identity until their
-  separate gates pass.
+- **Stable Backend extension contract:** Backend core v1 and net receive v1 are
+  defined by
+  [RFC0003](0003-backend-core-and-net-receive-contract.md).
+- **Experimental extensions:** reference executor and Provider
+  implementations, reactor capabilities beyond Backend v1, generator
+  integration, and stronger dynamic type identity until their separate gates
+  pass.
 
 Future ABI work can't weaken the stable semantics in this RFC without a new
 approved RFC. Append-only public structures must use their version and minimum
@@ -144,6 +151,7 @@ tests of internal state structures don't replace generated-C execution.
 ## Next steps
 
 Stages 2 through 4 completed core ABI v3, typed static await, and coroutine CFG
-optimization without changing this semantic contract. Stage 5 implements the
-separate Waker contract in [RFC0002](0002-waker-contract.md) before adding
-experimental reference executor behavior.
+optimization without changing this semantic contract. Stage 5 implemented the
+separate Waker contract in [RFC0002](0002-waker-contract.md). Stage 6 validates
+and publishes the Backend extension contract in
+[RFC0003](0003-backend-core-and-net-receive-contract.md).

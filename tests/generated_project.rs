@@ -61,6 +61,7 @@ fn create_and_build_project() -> tempfile::TempDir {
     let artifact_manifest =
         fs::read_to_string(project.join("crc/dist/crc-artifacts.json")).expect("artifact manifest");
     assert!(!artifact_manifest.contains("\"kind\": \"executor-"));
+    assert!(!artifact_manifest.contains("\"dependencies\""));
     directory
 }
 
@@ -105,6 +106,18 @@ fn executable_name(name: &str) -> String {
         format!("{name}.exe")
     } else {
         name.to_owned()
+    }
+}
+
+fn native_backend_source() -> &'static str {
+    if cfg!(windows) {
+        "cr_backend_iocp.c"
+    } else if cfg!(target_os = "linux") {
+        "cr_backend_epoll.c"
+    } else if cfg!(target_os = "macos") {
+        "cr_backend_kqueue.c"
+    } else {
+        panic!("native-net generated-project test requires Windows, Linux, or macOS");
     }
 }
 
@@ -604,7 +617,7 @@ fn check_validates_backend_selection_without_publishing_artifacts() {
 }
 
 #[test]
-fn backend_selection_preserves_stage5_artifacts_byte_for_byte() {
+fn backend_selection_publishes_exact_deduplicated_provider_family() {
     let directory = create_and_build_project();
     let project = directory.path().join("demo");
     let dist = project.join("crc/dist");
@@ -626,6 +639,9 @@ fn backend_selection_preserves_stage5_artifacts_byte_for_byte() {
         files
     };
     let stage5 = snapshot(&dist);
+    assert!(!dist.join("include/cr_backend.h").exists());
+    assert!(!dist.join("include/cr_net.h").exists());
+    assert!(!dist.join("runtime").exists());
     let config_path = project.join("crc.toml");
     let config = fs::read_to_string(&config_path).expect("project config");
     fs::write(
@@ -640,10 +656,167 @@ fn backend_selection_preserves_stage5_artifacts_byte_for_byte() {
     run(Command::new(env!("CARGO_BIN_EXE_crc"))
         .arg("build")
         .current_dir(&project));
-    assert_eq!(snapshot(&dist), stage5);
+    assert_ne!(snapshot(&dist), stage5);
+    for relative in [
+        "include/cr_backend.h",
+        "include/cr_net.h",
+        "runtime/cr_backend_internal.h",
+        "runtime/cr_backend_common.c",
+        "runtime/cr_backend_memory.c",
+        "runtime/cr_net_recv.c",
+    ] {
+        assert!(dist.join(relative).is_file(), "missing {relative}");
+    }
+    assert!(dist.join("runtime").join(native_backend_source()).is_file());
+    for unselected in [
+        "cr_backend_iocp.c",
+        "cr_backend_epoll.c",
+        "cr_backend_kqueue.c",
+    ] {
+        if unselected != native_backend_source() {
+            assert!(!dist.join("runtime").join(unselected).exists());
+        }
+    }
+    let manifest = fs::read_to_string(dist.join("crc-artifacts.json")).expect("backend manifest");
+    for shared in [
+        "include/cr_backend.h",
+        "include/cr_net.h",
+        "runtime/cr_backend_internal.h",
+        "runtime/cr_backend_common.c",
+        "runtime/cr_net_recv.c",
+    ] {
+        assert_eq!(manifest.matches(shared).count(), 1, "{shared}: {manifest}");
+    }
+    assert!(manifest.contains("\"kind\": \"backend-awaitable-source\""));
+    let meson = fs::read_to_string(dist.join("meson.build")).expect("Backend Meson manifest");
+    if cfg!(windows) {
+        assert!(manifest.contains("\"winsock\""));
+        assert!(meson.contains("find_library('ws2_32'"));
+        assert!(dist.join("crc-generated-dependencies.cmake").is_file());
+    } else {
+        assert!(!manifest.contains("\"winsock\""));
+        assert!(!meson.contains("ws2_32"));
+        assert!(!dist.join("crc-generated-dependencies.cmake").exists());
+    }
+}
+
+#[test]
+fn selected_backends_build_and_run_with_direct_c_cmake_and_meson() {
+    let directory = create_and_build_project();
+    let project = directory.path().join("demo");
+    let config_path = project.join("crc.toml");
+    let config = fs::read_to_string(&config_path).expect("project config");
+    fs::write(
+        &config_path,
+        config.replacen(
+            "backends = []",
+            "backends = [\"memory-conformance\", \"native-net\"]",
+            1,
+        ),
+    )
+    .expect("write selected backend config");
+    run(Command::new(env!("CARGO_BIN_EXE_crc"))
+        .arg("build")
+        .current_dir(&project));
+
+    let dist = project.join("crc/dist");
+    let mut generated_sources = walkdir::WalkDir::new(&dist)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry.file_type().is_file()
+                && entry
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "c")
+        })
+        .map(|entry| entry.into_path())
+        .collect::<Vec<_>>();
+    generated_sources.sort();
+    let direct_executable = project.join(executable_name("backend-direct"));
+    let mut direct = Command::new(available_c_compiler());
+    direct
+        .args(["-std=c11", "-Wall", "-Wextra", "-Werror"])
+        .arg("src/main.c")
+        .args(&generated_sources)
+        .args(["-I", "crc/dist/include", "-I", "include", "-o"])
+        .arg(&direct_executable)
+        .current_dir(&project);
+    if cfg!(windows) {
+        direct.arg("-lws2_32");
+    }
+    run(&mut direct);
+    run_generated_executable(&direct_executable);
+
+    run(Command::new("cmake")
+        .args(["-S", ".", "-B", "build-backend-cmake"])
+        .current_dir(&project));
+    run(Command::new("cmake")
+        .args(["--build", "build-backend-cmake"])
+        .current_dir(&project));
+    run_generated_executable(&find_executable(
+        &project.join("build-backend-cmake"),
+        "demo",
+    ));
+
+    run(Command::new("meson")
+        .args(["setup", "build-backend-meson", "."])
+        .current_dir(&project));
+    run(Command::new("meson")
+        .args(["compile", "-C", "build-backend-meson"])
+        .current_dir(&project));
+    run_generated_executable(&find_executable(
+        &project.join("build-backend-meson"),
+        "demo",
+    ));
+}
+
+#[test]
+fn backend_selection_transition_removes_stale_provider_and_dependency_files() {
+    let directory = create_and_build_project();
+    let project = directory.path().join("demo");
+    let config_path = project.join("crc.toml");
+    let initial = fs::read_to_string(&config_path).expect("project config");
+    fs::write(
+        &config_path,
+        initial.replacen("backends = []", "backends = [\"memory-conformance\"]", 1),
+    )
+    .expect("write memory backend config");
+    run(Command::new(env!("CARGO_BIN_EXE_crc"))
+        .arg("build")
+        .current_dir(&project));
+    let dist = project.join("crc/dist");
+    assert!(dist.join("runtime/cr_backend_memory.c").is_file());
+    assert!(!dist.join("runtime").join(native_backend_source()).exists());
+
+    let memory = fs::read_to_string(&config_path).expect("memory config");
+    fs::write(
+        &config_path,
+        memory.replacen("memory-conformance", "native-net", 1),
+    )
+    .expect("write native backend config");
+    run(Command::new(env!("CARGO_BIN_EXE_crc"))
+        .arg("build")
+        .current_dir(&project));
+    assert!(!dist.join("runtime/cr_backend_memory.c").exists());
+    assert!(dist.join("runtime").join(native_backend_source()).is_file());
+
+    let native = fs::read_to_string(&config_path).expect("native config");
+    fs::write(
+        &config_path,
+        native.replacen("backends = [\"native-net\"]", "backends = []", 1),
+    )
+    .expect("write empty backend config");
+    run(Command::new(env!("CARGO_BIN_EXE_crc"))
+        .arg("build")
+        .current_dir(&project));
     assert!(!dist.join("include/cr_backend.h").exists());
     assert!(!dist.join("include/cr_net.h").exists());
     assert!(!dist.join("runtime").exists());
+    assert!(!dist.join("crc-generated-dependencies.cmake").exists());
+    let manifest =
+        fs::read_to_string(dist.join("crc-artifacts.json")).expect("empty backend manifest");
+    assert!(!manifest.contains("\"dependencies\""));
 }
 
 #[test]

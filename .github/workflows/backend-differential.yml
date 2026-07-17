@@ -38,5 +38,14 @@ jobs:
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
 
+      - name: Install Meson
+        run: python -m pip install meson
+
       - name: Run canonical backend differential gate
         run: cargo test --test backend_differential -- --nocapture
+
+      - name: Build selected Backend project with CMake and Meson
+        run: >-
+          cargo test --test generated_project
+          selected_backends_build_and_run_with_direct_c_cmake_and_meson
+          -- --exact --nocapture

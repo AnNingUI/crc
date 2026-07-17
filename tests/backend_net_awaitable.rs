@@ -276,7 +276,7 @@ fn reference_receive_awaitable_compiles_and_links_for_wasm32_wasi() {
 }
 
 #[test]
-fn provider_stays_waker_free_and_awaitable_remains_an_unpublished_adapter() {
+fn provider_stays_waker_free_and_selected_project_publishes_awaitable_adapter() {
     let artifacts = memory_net_awaitable_artifacts();
     let provider = artifacts
         .iter()
@@ -307,6 +307,9 @@ fn provider_stays_waker_free_and_awaitable_remains_an_unpublished_adapter() {
     .expect("source");
     crc_lib::Compiler::new(config)
         .build_project(root)
-        .expect("selected project builds without publishing Task 4 adapter");
-    assert!(!root.join("crc/dist/runtime/cr_net_recv.c").exists());
+        .expect("selected project publishes Task 11 reference adapter");
+    assert!(root.join("crc/dist/runtime/cr_net_recv.c").is_file());
+    let manifest =
+        fs::read_to_string(root.join("crc/dist/crc-artifacts.json")).expect("artifact manifest");
+    assert!(manifest.contains("\"kind\": \"backend-awaitable-source\""));
 }

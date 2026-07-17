@@ -99,7 +99,7 @@ int main(void) {
     const cr_extension_id invalid_id = {0u, 0u};
     future_provider_desc provider = {
         {
-            CR_BACKEND_EXPERIMENTAL_ABI_VERSION,
+            CR_BACKEND_ABI_VERSION,
             sizeof(future_provider_desc),
             UINT64_C(1) << 63,
             CR_BACKEND_CORE_ID_INIT,
@@ -117,13 +117,13 @@ int main(void) {
     future_net_desc net = {
         {
             {
-                CR_NET_EXPERIMENTAL_ABI_VERSION,
+                CR_NET_ABI_VERSION,
                 sizeof(future_net_desc),
                 UINT64_C(1) << 62,
                 CR_NET_RECEIVE_EXTENSION_ID_INIT
             },
             {
-                CR_BACKEND_EXPERIMENTAL_ABI_VERSION,
+                CR_BACKEND_ABI_VERSION,
                 sizeof(cr_storage_layout),
                 UINT64_C(128),
                 UINT64_C(16)
@@ -140,7 +140,7 @@ int main(void) {
     future_net_desc invalid_net = net;
     cr_storage_layout invalid_alignment = net.v1.receive_operation_layout;
     cr_net_receive_completion completion = {
-        CR_NET_EXPERIMENTAL_ABI_VERSION,
+        CR_NET_ABI_VERSION,
         sizeof(cr_net_receive_completion),
         CR_NET_RECEIVE_READY,
         CR_NET_ERROR_NONE,
@@ -164,17 +164,17 @@ int main(void) {
     assert(cr_backend_extension_desc_is_compatible(
         &net.v1.base,
         net_id,
-        CR_NET_EXPERIMENTAL_ABI_VERSION
+        CR_NET_ABI_VERSION
     ));
     assert(!cr_backend_extension_desc_is_compatible(
         &net.v1.base,
         backend_id,
-        CR_NET_EXPERIMENTAL_ABI_VERSION
+        CR_NET_ABI_VERSION
     ));
     assert(!cr_backend_extension_desc_is_compatible(
         &net.v1.base,
         net_id,
-        CR_NET_EXPERIMENTAL_ABI_VERSION + 1u
+        CR_NET_ABI_VERSION + 1u
     ));
 
     assert(cr_net_extension_desc_is_compatible(&net.v1));
