@@ -353,6 +353,7 @@ impl Compiler {
         ];
         let mut runtime_sources = Vec::new();
         let mut build_dependencies = Vec::new();
+        let mut build_compile_options = Vec::new();
         let executor_artifacts = match runtime_selection.executor {
             config::ExecutorSelection::Manual => Vec::new(),
             config::ExecutorSelection::SingleThread => {
@@ -383,7 +384,15 @@ impl Compiler {
         }
         for selection in runtime_selection.backends {
             let mut selected = match selection {
-                config::BackendSelection::MemoryConformance => backend_runtime::memory_artifacts(),
+                config::BackendSelection::MemoryConformance => {
+                    if target_uses_winsock(&self.config.build.target) {
+                        insert_build_compile_option(
+                            &mut build_compile_options,
+                            BuildCompileOption::MsvcC11Atomics,
+                        );
+                    }
+                    backend_runtime::memory_artifacts()
+                }
                 config::BackendSelection::NativeNet => {
                     let artifacts =
                         backend_runtime::native_net_artifacts_for_target(&self.config.build.target)
@@ -543,10 +552,16 @@ impl Compiler {
         artifacts.push(Artifact {
             input: None,
             output: PathBuf::from("meson.build"),
-            contents: meson_source_manifest(&generated_sources, &build_dependencies),
+            contents: meson_source_manifest(
+                &generated_sources,
+                &build_dependencies,
+                &build_compile_options,
+            ),
             kind: "build-manifest",
         });
-        if let Some(contents) = cmake_dependency_manifest(&build_dependencies) {
+        if let Some(contents) =
+            cmake_dependency_manifest(&build_dependencies, &build_compile_options)
+        {
             artifacts.push(Artifact {
                 input: None,
                 output: PathBuf::from("crc-generated-dependencies.cmake"),
@@ -561,6 +576,10 @@ impl Compiler {
             dependencies: build_dependencies
                 .iter()
                 .map(|dependency| dependency.as_str())
+                .collect(),
+            compile_options: build_compile_options
+                .iter()
+                .map(|option| option.as_str())
                 .collect(),
             artifacts: artifacts
                 .iter()
@@ -604,6 +623,19 @@ impl BuildDependency {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum BuildCompileOption {
+    MsvcC11Atomics,
+}
+
+impl BuildCompileOption {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::MsvcC11Atomics => "msvc-c11-atomics",
+        }
+    }
+}
+
 struct ProjectSourceUnit {
     project_path: PathBuf,
     output_path: PathBuf,
@@ -618,6 +650,8 @@ struct ArtifactManifest<'a> {
     runtime_abi_version: u32,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     dependencies: Vec<&'static str>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    compile_options: Vec<&'static str>,
     artifacts: Vec<ArtifactRecord>,
 }
 
@@ -679,6 +713,13 @@ fn insert_build_dependency(dependencies: &mut Vec<BuildDependency>, dependency: 
     if !dependencies.contains(&dependency) {
         dependencies.push(dependency);
         dependencies.sort_unstable();
+    }
+}
+
+fn insert_build_compile_option(options: &mut Vec<BuildCompileOption>, option: BuildCompileOption) {
+    if !options.contains(&option) {
+        options.push(option);
+        options.sort_unstable();
     }
 }
 
@@ -756,8 +797,11 @@ fn publish_artifacts(dist_dir: &Path, artifacts: &[Artifact]) -> Result<()> {
     Ok(())
 }
 
-fn cmake_dependency_manifest(dependencies: &[BuildDependency]) -> Option<String> {
-    if dependencies.is_empty() {
+fn cmake_dependency_manifest(
+    dependencies: &[BuildDependency],
+    compile_options: &[BuildCompileOption],
+) -> Option<String> {
+    if dependencies.is_empty() && compile_options.is_empty() {
         return None;
     }
     let mut manifest = String::from("set(CR_GENERATED_DEPENDENCIES)\n");
@@ -772,12 +816,20 @@ fn cmake_dependency_manifest(dependencies: &[BuildDependency]) -> Option<String>
             }
         }
     }
+    if compile_options.contains(&BuildCompileOption::MsvcC11Atomics) {
+        manifest.push_str(
+            "if(MSVC)\n\
+             target_compile_options(${PROJECT_NAME} PRIVATE /experimental:c11atomics)\n\
+             endif()\n",
+        );
+    }
     Some(manifest)
 }
 
 fn meson_source_manifest(
     sources: &[std::path::PathBuf],
     dependencies: &[BuildDependency],
+    compile_options: &[BuildCompileOption],
 ) -> String {
     let mut manifest = if sources.is_empty() {
         "cr_generated_sources = []\n".to_owned()
@@ -795,7 +847,7 @@ fn meson_source_manifest(
         sources_manifest.push_str(")\n");
         sources_manifest
     };
-    if dependencies.contains(&BuildDependency::WinSock) {
+    if dependencies.contains(&BuildDependency::WinSock) || !compile_options.is_empty() {
         manifest.push_str("cr_generated_c_compiler = meson.get_compiler('c')\n");
     }
     if dependencies.is_empty() {
@@ -813,6 +865,14 @@ fn meson_source_manifest(
             }
         }
         manifest.push_str("]\n");
+    }
+    if compile_options.contains(&BuildCompileOption::MsvcC11Atomics) {
+        manifest.push_str(
+            "cr_generated_compile_args = []\n\
+             if cr_generated_c_compiler.get_id() == 'msvc'\n\
+               cr_generated_compile_args += ['/experimental:c11atomics']\n\
+             endif\n",
+        );
     }
     manifest
 }
@@ -875,7 +935,10 @@ mod tests {
         BackendSelection, Config, ExecutorSelection, OptimizationLevel, TargetConfig,
     };
 
-    use super::{BuildDependency, Compiler, cmake_dependency_manifest, meson_source_manifest};
+    use super::{
+        BuildCompileOption, BuildDependency, Compiler, cmake_dependency_manifest,
+        meson_source_manifest,
+    };
 
     #[test]
     fn compiler_pipeline_retains_target_and_optimization_selection() {
@@ -927,6 +990,7 @@ mod tests {
         let manifest = meson_source_manifest(
             &[PathBuf::from("nested\\worker.c"), PathBuf::from("main.c")],
             &[],
+            &[],
         );
         assert_eq!(
             manifest,
@@ -939,6 +1003,7 @@ mod tests {
         let manifest = meson_source_manifest(
             &[PathBuf::from("runtime/worker.c")],
             &[BuildDependency::PosixThreads],
+            &[],
         );
         assert_eq!(
             manifest,
@@ -950,14 +1015,14 @@ mod tests {
     fn build_manifests_render_winsock_from_the_explicit_dependency_plan() {
         let dependencies = [BuildDependency::WinSock];
         assert_eq!(
-            cmake_dependency_manifest(&dependencies).as_deref(),
+            cmake_dependency_manifest(&dependencies, &[]).as_deref(),
             Some(
                 "set(CR_GENERATED_DEPENDENCIES)\n\
                  list(APPEND CR_GENERATED_DEPENDENCIES ws2_32)\n"
             )
         );
         assert_eq!(
-            meson_source_manifest(&[], &dependencies),
+            meson_source_manifest(&[], &dependencies, &[]),
             concat!(
                 "cr_generated_sources = []\n",
                 "cr_generated_c_compiler = meson.get_compiler('c')\n",
@@ -966,5 +1031,16 @@ mod tests {
                 "]\n",
             )
         );
+    }
+
+    #[test]
+    fn build_manifests_enable_c11_atomics_only_for_msvc_memory_projects() {
+        let options = [BuildCompileOption::MsvcC11Atomics];
+        let cmake = cmake_dependency_manifest(&[], &options).expect("CMake options");
+        assert!(cmake.contains("if(MSVC)"));
+        assert!(cmake.contains("/experimental:c11atomics"));
+        let meson = meson_source_manifest(&[], &[], &options);
+        assert!(meson.contains("get_id() == 'msvc'"));
+        assert!(meson.contains("/experimental:c11atomics"));
     }
 }

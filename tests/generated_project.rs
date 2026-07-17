@@ -314,7 +314,7 @@ fn native_threaded_project_selects_only_the_host_backend() {
     let meson_manifest =
         fs::read_to_string(project.join("crc/dist/meson.build")).expect("Meson manifest");
     let dependency_manifest = if cfg!(unix) {
-        "cr_generated_dependencies = [dependency('threads')]\n"
+        "cr_generated_dependencies = [\n  dependency('threads'),\n]\n"
     } else {
         "cr_generated_dependencies = []\n"
     };

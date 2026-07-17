@@ -17,6 +17,7 @@ executable(
   '{{ project_name }}',
   files('src/main.c') + cr_generated_sources,
   dependencies: cr_generated_dependencies,
+  c_args: get_variable('cr_generated_compile_args', []),
   include_directories: [
     include_directories('include'),
     include_directories('crc/dist/include'),
