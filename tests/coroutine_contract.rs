@@ -766,7 +766,10 @@ fn stage4_optimized_levels_reuse_storage_without_changing_none() {
     assert!(size.contains("cr_child_value_task cr_child_1;"));
     assert!(size.contains("cr_awaitable cr_await_2;"));
     assert_ne!(size, speed);
-    assert_eq!(aggressive, size, "Task 12 isn't enabled yet");
+    assert_eq!(
+        aggressive, size,
+        "Aggressive planning must retain the verified size-layout incumbent"
+    );
 }
 
 #[test]

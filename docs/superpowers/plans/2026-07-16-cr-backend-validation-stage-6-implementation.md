@@ -136,9 +136,12 @@ Completed: Task 7 Linux epoll provider
 Completed: Task 8 macOS kqueue provider
 Completed: Task 9 cross-provider differential analysis
 Completed: Task 10 freeze the proven semantic prefix
-Next: Task 11 complete generated-project integration
-Pending: Tasks 11 through 13
-External gate: Backend differential passed on Windows, Linux, and macOS
+Completed: Task 11 complete generated-project integration
+Completed: Task 12 validate the memory Provider as WebAssembly
+In progress: Task 13 local gates and final CI implementation complete
+Pending: Task 13 four-job external matrix on one revision
+External gate: Backend and generated-project gates passed on all three hosts
+Local gate: Required WASI SDK 27 and wasm-tools 1.252.0 validation passed
 ```
 
 ## Task 1: Add backend selection without changing output
@@ -774,6 +777,27 @@ Run the second command only when the test is split into its own file.
 - Build-system dependencies match the selected target provider.
 - Default projects pay no Stage 6 runtime or linkage cost.
 
+**Implementation and acceptance evidence (2026-07-17):**
+
+- Backend selection publishes stable headers, shared core, the selected
+  Provider sources, and one experimental reference awaitable.
+- Explicit build planning adds WinSock only for IOCP and POSIX threads only for
+  the native threaded executor.
+- Windows memory projects enable MSVC C11 atomics without changing Clang, GCC,
+  native-only, or empty projects.
+- CMake and Meson consume generated dependency and compile-option plans instead
+  of inferring requirements from Provider filenames.
+- Artifact planning deduplicates identical shared paths and rejects conflicting
+  duplicate outputs before publication.
+- The artifact manifest records Backend classes, dependencies, and conditional
+  compile options. Empty selections retain the Stage 5 manifest shape.
+- memory-to-native-to-empty transitions remove stale Provider, header,
+  awaitable, and dependency artifacts through atomic directory replacement.
+- Direct C, CMake, and Meson selected-Backend projects pass on Windows, Linux,
+  and macOS through GitHub Actions.
+- Formatting, all-target checks and tests, Clippy with warnings denied, grammar,
+  frozen ABI, differential, WASI, and 154 library tests pass.
+
 ## Task 12: Validate the memory provider as WebAssembly
 
 This task proves the stabilized headers and conformance provider remain
@@ -829,6 +853,31 @@ finally {
 - Native provider artifacts are absent.
 - Generated tasks, static dispatch, and context optimization remain intact.
 
+**Completed evidence:**
+
+- A real generated `wasm32-wasi` project publishes the single-thread executor,
+  memory Provider, Backend common source, and reference receive awaitable once.
+- The published source set contains no IOCP, epoll, kqueue, POSIX threaded, or
+  Windows threaded source and declares no native build dependency.
+- The owning root uses a direct typed poll for its static child and a dynamic
+  vtable call only for the reference receive awaitable.
+- Native Clang and GCC produce the same completion, interrupt, cancellation,
+  drop, and quiescence transcript.
+- Pinned WASI SDK 27 compiles every generated, runtime, Provider, awaitable, and
+  harness translation unit separately before linking the final module.
+- Pinned `wasm-tools` 1.252.0 validates and prints the final module.
+- Semantic WAT inspection finds no shared memory, WebAssembly atomic
+  instruction, atomics target feature, WASI threads import, native Provider
+  symbol, or native socket import. Debug-only custom sections don't count as
+  executable imports.
+- `CRC_REQUIRE_WASM=1` makes the pinned toolchain mandatory, and the focused
+  PowerShell gate restores the previous environment value after execution.
+- Aggressive context planning retains verified union storage and direct static
+  dispatch in the same generated fixture.
+- `cargo check --all-targets`, `cargo test --all-targets`, and Clippy with
+  warnings denied pass. The library suite contains 155 passing tests, and the
+  new generated WebAssembly Backend integration target passes.
+
 ## Task 13: Run final Stage 6 gates
 
 This task proves backend stabilization didn't weaken any Stage 0 through Stage
@@ -836,6 +885,11 @@ This task proves backend stabilization didn't weaken any Stage 0 through Stage
 
 **Files:**
 
+- Create
+  `docs/superpowers/specs/2026-07-17-cr-stage-6-final-validation-task-13-design.md`.
+- Consolidate `.github/workflows/backend-differential.yml` into the final
+  native and WebAssembly matrix.
+- Remove the duplicate `.github/workflows/macos-kqueue.yml`.
 - Modify implementation files only to fix failures found by final gates.
 - Update RFC0003 and the Stage 6 design only for genuine contract defects.
 - Update this plan with final artifact, file, and gate evidence.
@@ -901,6 +955,70 @@ required WASI command from Task 12 with environment restoration.
 - WASI retains portable C11 without shared memory or threads.
 - No EventSource or out-of-scope network API appears in production.
 
+### Task 13 local and CI implementation evidence
+
+The local Windows gate and final workflow implementation completed on July 17,
+2026. Stage 6 remains pending until all four external jobs pass for the same
+revision.
+
+Local evidence:
+
+- Formatting, all-target checks, 155 library tests, every integration target,
+  Clippy with warnings denied, and all four grammar parses pass.
+- Real IOCP loopback conformance and the memory-to-IOCP canonical transcript
+  pass with Windows C compilers.
+- Selected Backend projects build and run through direct C, CMake, and Meson.
+- Stable Backend v1 records pass native, frozen-prefix, and pinned WASI gates.
+- Memory, reference awaitable, generated owning-root, interrupt, cancellation,
+  drop, quiescence, allocation, and shutdown gates pass.
+- Required WASI SDK 27 and `wasm-tools` 1.252.0 compile, link, validate, and
+  inspect both generated WebAssembly project families.
+- Runtime ABI v3, Waker v1, frozen Stage 4 object, static await, coroutine CFG,
+  and context-layout regressions pass.
+- Production Provider sources contain no EventSource, plugin loader, timer,
+  send, connect, accept, DNS, TLS, UDP, task pointer, executor pointer, Waker,
+  poll call, or resume call.
+- Backend and Provider allocation sites remain confined to create, tracking
+  setup, failure cleanup, shutdown, and destroy. Hot operation allocation
+  counters remain zero.
+- Default manual projects and Stage 5 portable executor artifacts retain their
+  established regression baselines.
+
+Final artifact classification:
+
+- Stable: Backend core v1 and net receive v1 constants, identities, semantic
+  contracts, by-value records, and append-only prefixes delimited in
+  `cr_backend.h` and `cr_net.h`.
+- Experimental: Backend and operation layouts, reference Provider symbols and
+  sources, native event state, memory trace controls, the reference receive
+  awaitable API and layout, executor implementations, build-selection details,
+  and private generated manifests.
+- Compiler-private: generated task/context layouts, embedded and boxed child
+  storage, slot reuse, coroutine states, and native Provider state machines.
+
+Final CI implementation:
+
+- `.github/workflows/backend-differential.yml` now defines Windows 2022,
+  Ubuntu 24.04, and macOS 14 native entries plus one pinned `wasm32-wasi` job.
+- Every native entry runs formatting, all-target checks, Clippy, all-target
+  tests, generated build systems, Provider conformance, differential logs, and
+  grammar tests.
+- The macOS entry installs Zig so Intel and Apple Silicon kqueue artifacts are
+  both compiled.
+- The WebAssembly entry reads repository pins, downloads official WASI SDK and
+  `wasm-tools` archives, verifies their versions, sets `CRC_REQUIRE_WASM=1`,
+  and runs all test targets.
+- The duplicate macOS workflow is removed.
+
+External completion gate:
+
+- Windows 2022 / memory + IOCP must pass.
+- Ubuntu 24.04 / memory + epoll must pass.
+- macOS 14 / memory + kqueue must pass.
+- WASI SDK 27 / required portable gate must pass.
+- All four results must belong to the same revision before this task and Stage
+  6 are marked complete.
+
 ## Stop conditions
 
 Stop and amend the approved design instead of broadening implementation when
@@ -926,7 +1044,7 @@ any of these conditions occurs:
 
 ## Next steps
 
-After user approval, begin Task 1 by adding backend selection and target
-validation without changing generated artifacts. Don't publish experimental
-headers or provider sources until Task 2 and Task 3 establish their executable
-conformance gates.
+Publish the Task 13 revision and run the consolidated Stage 6 final workflow.
+After all four jobs pass, record the external evidence and mark Stage 6
+complete. Any later feature begins in a separately approved stage and preserves
+Backend core v1 and net receive v1.

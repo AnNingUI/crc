@@ -364,9 +364,12 @@ fn memory_selection_publishes_portable_provider_and_reference_awaitable() {
     assert!(root.join("crc/dist/include/cr_net.h").is_file());
     assert!(root.join("crc/dist/runtime/cr_backend_memory.c").is_file());
     assert!(root.join("crc/dist/runtime/cr_net_recv.c").is_file());
-    assert!(
-        !root
-            .join("crc/dist/crc-generated-dependencies.cmake")
-            .exists()
-    );
+    let cmake_options = root.join("crc/dist/crc-generated-dependencies.cmake");
+    if cfg!(windows) {
+        let contents = fs::read_to_string(cmake_options).expect("MSVC atomics options");
+        assert!(contents.contains("if(MSVC)"));
+        assert!(contents.contains("/experimental:c11atomics"));
+    } else {
+        assert!(!cmake_options.exists());
+    }
 }

@@ -1,4 +1,4 @@
-name: Backend differential
+name: Stage 6 final
 
 on:
   workflow_dispatch:
@@ -13,20 +13,73 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  differential:
+  native:
     name: ${{ matrix.name }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: Windows / memory + IOCP
+          - name: Windows 2022 / memory + IOCP
             runner: windows-2022
-          - name: Linux / memory + epoll
+          - name: Ubuntu 24.04 / memory + epoll
             runner: ubuntu-24.04
-          - name: macOS / memory + kqueue
+          - name: macOS 14 / memory + kqueue
             runner: macos-14
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Meson
+        run: python -m pip install meson
+
+      - name: Install macOS cross-compilation tool
+        if: runner.os == 'macOS'
+        run: brew install zig
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install grammar dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check Rust formatting
+        run: cargo fmt --check
+
+      - name: Check all Rust targets
+        run: cargo check --all-targets
+
+      - name: Lint all Rust targets
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test all Rust targets
+        run: cargo test --all-targets
+
+      - name: Test Tree-sitter grammar
+        run: pnpm run grammar:test
+
+  wasm32-wasi:
+    name: WASI SDK 27 / required portable gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository
@@ -38,14 +91,56 @@ jobs:
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
 
-      - name: Install Meson
+      - name: Read pinned WebAssembly tool versions
+        id: wasm_pins
+        shell: bash
+        run: |
+          echo "wasi_sdk=$(tr -d '\r\n' < tools/wasi-sdk.version)" >> "$GITHUB_OUTPUT"
+          echo "wasm_tools=$(tr -d '\r\n' < tools/wasm-tools.version)" >> "$GITHUB_OUTPUT"
+
+      - name: Install pinned WASI SDK
+        shell: bash
+        env:
+          WASI_SDK_VERSION: ${{ steps.wasm_pins.outputs.wasi_sdk }}
+        run: |
+          wasi_major="${WASI_SDK_VERSION%%.*}"
+          archive="wasi-sdk-${WASI_SDK_VERSION}-x86_64-linux.tar.gz"
+          url="https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${wasi_major}/${archive}"
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/$archive" "$url"
+          tar --extract --gzip --file "$RUNNER_TEMP/$archive" --directory "$RUNNER_TEMP"
+          wasi_root="$(find "$RUNNER_TEMP" -maxdepth 1 -type d -name "wasi-sdk-${WASI_SDK_VERSION}*" -print -quit)"
+          test -n "$wasi_root"
+          test "$(head -n 1 "$wasi_root/VERSION")" = "$WASI_SDK_VERSION"
+          echo "WASI_SDK_PATH=$wasi_root" >> "$GITHUB_ENV"
+
+      - name: Install pinned wasm-tools
+        shell: bash
+        env:
+          WASM_TOOLS_VERSION: ${{ steps.wasm_pins.outputs.wasm_tools }}
+        run: |
+          archive="wasm-tools-${WASM_TOOLS_VERSION}-x86_64-linux.tar.gz"
+          url="https://github.com/bytecodealliance/wasm-tools/releases/download/v${WASM_TOOLS_VERSION}/${archive}"
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/$archive" "$url"
+          tar --extract --gzip --file "$RUNNER_TEMP/$archive" --directory "$RUNNER_TEMP"
+          wasm_tools_bin="$(find "$RUNNER_TEMP" -type f -name wasm-tools -path "*wasm-tools-${WASM_TOOLS_VERSION}*" -print -quit)"
+          test -n "$wasm_tools_bin"
+          chmod +x "$wasm_tools_bin"
+          dirname "$wasm_tools_bin" >> "$GITHUB_PATH"
+
+      - name: Verify pinned WebAssembly tools
+        shell: bash
+        env:
+          WASI_SDK_VERSION: ${{ steps.wasm_pins.outputs.wasi_sdk }}
+          WASM_TOOLS_VERSION: ${{ steps.wasm_pins.outputs.wasm_tools }}
+        run: |
+          test "$(head -n 1 "$WASI_SDK_PATH/VERSION")" = "$WASI_SDK_VERSION"
+          "$WASI_SDK_PATH/bin/clang" --version
+          wasm-tools --version | grep --fixed-strings "wasm-tools $WASM_TOOLS_VERSION "
+
+      - name: Install native integration tools
         run: python -m pip install meson
 
-      - name: Run canonical backend differential gate
-        run: cargo test --test backend_differential -- --nocapture
-
-      - name: Build selected Backend project with CMake and Meson
-        run: >-
-          cargo test --test generated_project
-          selected_backends_build_and_run_with_direct_c_cmake_and_meson
-          -- --exact --nocapture
+      - name: Run required WebAssembly and regression gates
+        env:
+          CRC_REQUIRE_WASM: "1"
+        run: cargo test --all-targets
